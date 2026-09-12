@@ -1,0 +1,35 @@
+{
+	"schemaVersion": 1,
+	"id": "mtrlock",
+	"version": "${version}",
+	"name": "mtrlock",
+	"description": "${mod_description}",
+	"authors": [
+		"${mod_authors}"
+	],
+	"license": "CC0-1.0",
+	"icon": "assets/mtrlock/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"com.mtrstar.lock.Mtrlock"
+		],
+		"client": [
+			"com.mtrstar.lock.client.MtrlockClient"
+		]
+	},
+	"mixins": [
+		"mtrlock.mixins.json",
+		{
+			"config": "mtrlock.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~1.20.1",
+		"java": ">=17",
+		"fabric-api": "*",
+		"mtr": ">=4.0.0"
+	}
+}

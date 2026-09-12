@@ -1,0 +1,20 @@
+{
+	"required": true,
+	"package": "com.mtrstar.lock.mixin",
+	"compatibilityLevel": "JAVA_17",
+	"mixins": [
+		"PacketRequestResponseBaseMixin",
+		"UpdateDataRequestMixin",
+		"PacketEditPermissionMixin",
+		"RouteFlagPermissionMixin",
+		"DeleteDataRequestSchemaAccessor",
+		"DeleteOwnershipCleanupMixin",
+		"DataChildParentMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	},
+	"overwrites": {
+		"requireAnnotations": true
+	}
+}
