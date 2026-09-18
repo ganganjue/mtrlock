@@ -1,23 +1,34 @@
 package com.mtrstar.lock.client;
 
 import com.mtrstar.lock.network.OwnershipSync;
-
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+
 public class MtrlockClient implements ClientModInitializer {
 
-@Override
-public void onInitializeClient() {
-// 功能 6：接收服务端的归属快照（mtrlock:sync_ownership）
-ClientPlayNetworking.registerGlobalReceiver(OwnershipSync.CHANNEL, (client, handler, buf, responseSender) -> {
-final OwnershipSync.Snapshot snapshot = OwnershipSync.read(buf);
-ClientOwnership.setAll(snapshot.ownership());
-ClientOwnership.setOperator(snapshot.operator());
-});
+    @Override
+    public void onInitializeClient() {
+        ClientPlayNetworking.registerGlobalReceiver(OwnershipSync.CHANNEL,
+                (client, handler, buf, responseSender) -> {
+                    final OwnershipSync.Snapshot snapshot = OwnershipSync.read(buf);
 
-// 功能 6：断开连接时清空本地缓存
-ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ClientOwnership.clear());
-}
+                    final Map<String, Set<String>> teamMembers = new HashMap<>();
+                    for (var e : snapshot.teams().entrySet()) {
+                        teamMembers.put(e.getKey(), e.getValue().members());
+                    }
+
+                    client.execute(() -> {
+                        ClientOwnership.setAll(snapshot.ownership());
+                        ClientOwnership.setOperator(snapshot.operator());
+                        ClientOwnership.setShareSnapshot(snapshot.shares(), teamMembers);
+                    });
+                });
+
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ClientOwnership.clear());
+    }
 }

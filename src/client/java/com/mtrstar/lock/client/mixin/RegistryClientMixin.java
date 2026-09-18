@@ -63,19 +63,21 @@ public abstract class RegistryClientMixin {
         final List<String> denied;
         final String message;
 
+        // 1.1.0：客户端还没有分享 / 团队快照（阶段 5 才同步），canEditOrUnknown 对非创建者
+        // fail-open，避免误拦“对象已分享给其团队”的成员；精确拦截仍由服务端兜底。
         if (packet instanceof PacketUpdateData) {
             denied = PermissionGuard.findDeniedInUpdate(
                     content,
                     ClientOwnership::hasCreator,
                     ChildParents::get,
-                    objectId -> ClientOwnership.canEdit(objectId, uuid));
+                    objectId -> ClientOwnership.canEditOrUnknown(objectId, uuid));
             message = MESSAGE_EDIT;
         } else if (packet instanceof PacketDeleteData) {
             denied = PermissionGuard.findDeniedInDelete(
                     content,
                     ClientOwnership::hasCreator,
                     ChildParents::get,
-                    objectId -> ClientOwnership.canEdit(objectId, uuid));
+                    objectId -> ClientOwnership.canEditOrUnknown(objectId, uuid));
             message = MESSAGE_DELETE;
         } else {
             return;

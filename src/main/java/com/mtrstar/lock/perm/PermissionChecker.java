@@ -1,10 +1,15 @@
 package com.mtrstar.lock.perm;
 
+import com.mtrstar.lock.team.ShareData;
+import com.mtrstar.lock.team.Team;
+import com.mtrstar.lock.team.TeamData;
 import org.mtr.core.data.Depot;
 import org.mtr.core.data.NameColorDataBase;
 import org.mtr.core.data.Route;
 import org.mtr.core.data.Station;
 import org.mtr.mapping.holder.ServerPlayerEntity;
+
+import java.util.Set;
 
 /**
  * 权限判定工具（功能 4，纯服务端逻辑）。
@@ -12,10 +17,11 @@ import org.mtr.mapping.holder.ServerPlayerEntity;
  * <p>只做“这个玩家能不能编辑这个对象”的判定，<b>不拦截</b>任何操作（拦截是功能 5 的事），
  * 也不读配置文件、不发网络包、不碰 GUI。</p>
  *
- * <p>判定规则：</p>
+ * <p>判定规则（1.1.0 起）：</p>
  * <ol>
  *   <li>管理员（permission level &gt;= 3）→ 直接放行；</li>
  *   <li>否则看归属：{@code ownership.json} 里该 objectId 的创建者 UUID 等于玩家 UUID → 放行；</li>
+ *   <li>否则看分享：对象分享给了某团队 T，且玩家是 T 的成员 → 放行；</li>
  *   <li>其余情况一律拒绝。</li>
  * </ol>
  *
@@ -23,9 +29,9 @@ import org.mtr.mapping.holder.ServerPlayerEntity;
  * hexId 取 MTR 的 {@code NameColorDataBase.getHexId()} 原始输出
  * （= {@code Utilities.numberToPaddedHexString(id)}，16 位大写十六进制，<b>不能 lowercase / 截断</b>）。</p>
  *
- * <p>为了能写纯 JVM 单元测试，归属查询被抽象成 {@link OwnershipLookup} 这个最小接口：
- * 生产代码用 {@link #OWNERSHIP}（内部走 {@link OwnershipData} 单例），测试注入简单桩。
- * 公共 API 与规则完全不变。</p>
+ * <p>为了能写纯 JVM 单元测试，查询被抽象成 {@link OwnershipLookup} / {@link CreatorLookup} /
+ * {@link ShareLookup} / {@link TeamMembershipLookup} 这些最小接口：生产代码用内置的生产实现
+ * （内部走 {@link OwnershipData} / {@link ShareData} / {@link TeamData} 单例），测试注入简单桩。</p>
  */
 public final class PermissionChecker {
 
@@ -52,10 +58,81 @@ public final class PermissionChecker {
      * @return 管理员，或该对象的创建者本人 → true；否则 false
      */
     public static boolean canEdit(ServerPlayerEntity player, String objectId) {
-        return check(isAdmin(player),
-                player == null ? null : player.getUuidAsString(),
-                objectId,
-                OWNERSHIP);
+        if (player == null) {
+            return false;
+        }
+        return canEdit(objectId, player.getUuidAsString(), isAdmin(player),
+                OWNERSHIP, SHARES, MEMBERSHIPS);
+    }
+
+    /**
+     * 1.1.0 纯逻辑判定（分享感知）：不依赖 Minecraft / Fabric，可直接单测。
+     *
+     * <p>规则：</p>
+     * <ol>
+     *   <li>{@code isAdmin} → true；</li>
+     *   <li>{@code objectId} / {@code playerUuid} 为 null / 空 → false；</li>
+     *   <li>创建者 == 玩家 → true；</li>
+     *   <li>对象分享给的任一团队 T 满足“玩家是 T 成员” → true；</li>
+     *   <li>否则 false。</li>
+     * </ol>
+     *
+     * @param objectId    对象 id，可为 null
+     * @param playerUuid  玩家 UUID，可为 null
+     * @param isAdmin     是否管理员（OP 3+）
+     * @param creators    创建者查询；为 null 视为无归属
+     * @param shares      分享查询；为 null 视为无分享
+     * @param memberships 团队成员查询；为 null 视为不匹配
+     * @return 能否编辑
+     */
+    public static boolean canEdit(String objectId, String playerUuid, boolean isAdmin,
+                                  CreatorLookup creators,
+                                  ShareLookup shares,
+                                  TeamMembershipLookup memberships) {
+        // 1) 管理员豁免：即使其它参数全为 null 也放行，不 NPE
+        if (isAdmin) {
+            return true;
+        }
+        // 2) 参数校验
+        if (objectId == null || objectId.isEmpty() || playerUuid == null || playerUuid.isEmpty()) {
+            return false;
+        }
+        // 3) 创建者本人
+        if (creators != null) {
+            final String creator = creators.getCreator(objectId);
+            if (creator != null && creator.equals(playerUuid)) {
+                return true;
+            }
+        }
+        // 4) 分享给某团队、且玩家是该团队成员
+        if (shares != null && memberships != null) {
+            final Set<String> teamIds = shares.teamsOfObject(objectId);
+            if (teamIds != null) {
+                for (String teamId : teamIds) {
+                    if (teamId != null && memberships.isMemberOf(teamId, playerUuid)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        // 5) 否则拒绝
+        return false;
+    }
+
+    /**
+     * 服务端生产便捷入口：为一个玩家构造“能否编辑 objectId”的判定函数（分享感知）。
+     *
+     * <p>每处理一个包只解析一次 uuid / admin 标志，避免 {@link PermissionGuard} 对同一请求里
+     * 多个对象重复取；返回的函数内部走 {@link #canEdit(String, String, boolean, CreatorLookup,
+     * ShareLookup, TeamMembershipLookup)} + 生产注入。</p>
+     *
+     * @param player 服务端玩家；可为 null（此时判定恒 false）
+     * @return 判定函数（供 {@link PermissionGuard} 使用）
+     */
+    public static PermissionGuard.EditPermission editPermissionFor(ServerPlayerEntity player) {
+        final String playerUuid = player == null ? null : player.getUuidAsString();
+        final boolean admin = isAdmin(player);
+        return objectId -> canEdit(objectId, playerUuid, admin, OWNERSHIP, SHARES, MEMBERSHIPS);
     }
 
     /**
@@ -101,12 +178,13 @@ public final class PermissionChecker {
      * 归属查询的最小抽象，便于单测注入桩，避免触碰 {@link OwnershipData} 的静态初始化
      * （它依赖 FabricLoader / 文件系统）。
      */
-    interface OwnershipLookup {
+    interface OwnershipLookup extends CreatorLookup {
 
-        /** 是否存在归属记录。 */
+        /** 是否存在归属记录（用于 fail-open 的“创建 / 未知对象”判断）。 */
         boolean hasCreator(String objectId);
 
         /** 取创建者 UUID；不存在返回 null。 */
+        @Override
         String getCreator(String objectId);
     }
 
@@ -121,6 +199,15 @@ public final class PermissionChecker {
         public String getCreator(String objectId) {
             return OwnershipData.getInstance().getCreator(objectId);
         }
+    };
+
+    /** 生产实现：分享查询（延迟到真正调用才触碰 {@link ShareData} 单例）。 */
+    private static final ShareLookup SHARES = objectId -> ShareData.getInstance().getTeamsOfObject(objectId);
+
+    /** 生产实现：团队成员查询（延迟到真正调用才触碰 {@link TeamData} 单例）。 */
+    private static final TeamMembershipLookup MEMBERSHIPS = (teamId, playerUuid) -> {
+        final Team team = TeamData.getInstance().getTeam(teamId);
+        return team != null && team.isMember(playerUuid);
     };
 
     /**

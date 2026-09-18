@@ -2,6 +2,11 @@ package com.mtrstar.lock;
 
 import com.mtrstar.lock.network.OwnershipSync;
 import com.mtrstar.lock.perm.OwnershipData;
+import com.mtrstar.lock.team.ShareData;
+import com.mtrstar.lock.team.TeamData;
+import com.mtrstar.lock.command.MtrlockCommand;
+import com.mtrstar.lock.command.TeamCommand;
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -22,6 +27,16 @@ public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
 @Override
 public void onInitialize() {
+// 1.1.0 阶段 4：注册命令
+// 1.1.0 阶段 5：团队 / 分享变更后推送 S2C 全量快照
+TeamData.setChangeListener(OwnershipSync::pushToAll);
+ShareData.setChangeListener(OwnershipSync::pushToAll);
+
+CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
+TeamCommand.register(dispatcher);
+MtrlockCommand.register(dispatcher);
+});
+
 // This code runs as soon as Minecraft is in a mod-load-ready state.
 // However, some things (like resources) may still be uninitialized.
 // Proceed with mild caution.
@@ -31,10 +46,19 @@ public void onInitialize() {
 //   服务端关闭前写回。
 ServerLifecycleEvents.SERVER_STARTED.register(server -> {
 OwnershipData.getInstance().load();
+// 1.1.0：团队 / 分享数据加载。顺序固定：TeamData 先加载，ShareData 再清理孤儿 teamId。
+TeamData.getInstance().load();
+ShareData.getInstance().load();
+ShareData.getInstance().cleanupOrphanTeams();
 // 功能 6：保存 server 引用，供 setCreator/removeCreator 后的 S2C 全量推送使用
 OwnershipSync.setServer(server);
 });
-ServerLifecycleEvents.SERVER_STOPPING.register(server -> OwnershipData.getInstance().save());
+ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
+OwnershipData.getInstance().save();
+// 1.1.0：分享 / 团队数据写回
+ShareData.getInstance().save();
+TeamData.getInstance().save();
+});
 ServerLifecycleEvents.SERVER_STOPPED.register(server -> OwnershipSync.clearServer());
 
 // 功能 6：玩家进服时把当前归属快照推给他（含“是否 OP 3+”）
@@ -43,7 +67,13 @@ OwnershipSync.pushTo(handler.getPlayer()));
 
 // 兜底：即使服务端不是正常关闭（崩溃 / kill），进程退出时也尽量落盘一次。
 OwnershipData ownership = OwnershipData.getInstance();
-Runtime.getRuntime().addShutdownHook(new Thread(ownership::save, "mtrlock-ownership-save"));
+TeamData teams = TeamData.getInstance();
+ShareData shares = ShareData.getInstance();
+Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+ownership.save();
+shares.save();
+teams.save();
+}, "mtrlock-data-save"));
 }
 
 public static Identifier id(String path) {

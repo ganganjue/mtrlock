@@ -66,13 +66,17 @@ public abstract class PacketEditPermissionMixin {
         final List<String> denied;
         final String message;
 
+        // 1.1.0：每包只解析一次 uuid / admin；判定函数内部走“分享感知”的纯逻辑 + 生产注入
+        // （OwnershipData / ShareData / TeamData）。这样编辑 / 删除都能命中“团队成员可编辑”。
+        final PermissionGuard.EditPermission permission = PermissionChecker.editPermissionFor(player);
+
         if ((Object) this instanceof PacketUpdateData) {
             // 编辑：逐个对象判定；无归属记录的会被 PermissionGuard 视为创建而放行
             denied = PermissionGuard.findDeniedInUpdate(
                     content,
                     OwnershipData.getInstance()::hasCreator,
                     ChildParents::get,
-                    objectId -> PermissionChecker.canEdit(player, objectId));
+                    permission);
             message = MESSAGE_EDIT;
         } else if ((Object) this instanceof PacketDeleteData) {
             // 删除：逐个 id 判定
@@ -80,7 +84,7 @@ public abstract class PacketEditPermissionMixin {
                     content,
                     OwnershipData.getInstance()::hasCreator,
                     ChildParents::get,
-                    objectId -> PermissionChecker.canEdit(player, objectId));
+                    permission);
             message = MESSAGE_DELETE;
         } else {
             // 其它包（创建之外的查询 / 配置 / 车辆操作等）不处理
