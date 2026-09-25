@@ -21,14 +21,15 @@
   - 被踢 / 退队时，该玩家分享给团队的对象自动撤销分享
   - 团队解散时清理所有指向该团队的分享
 
-- **玩家名前缀**：聊天栏、tab 列表、头顶名字显示 `[团队名前两字]`；无团队显示 `[独立建造者]`。
+- **玩家名前缀**：聊天栏、tab 列表、头顶名字显示 `[团队名前两字]`；有自定义称呼时显示 `[称呼]`；两者都没有时**不显示前缀**。
   - 前缀取“最早加入的团队”名前 2 个 Unicode code point（中文按字算，emoji 不截断）。
   - 客户端头顶名字基于 S2C 同步的团队快照本地计算，无团队时不误标。
+  - 装了 StyledChat / StyledPlayerList 时改用 Placeholder API，见下方“与 StyledChat / StyledPlayerList 共存”。
 
-- **管理员自定义称呼（1.2.0）**：OP 3+ 可用 `/mtrlock title <玩家名> <称呼>` 给任意玩家设置称呼、
+- **管理员自定义称呼（1.2.1）**：OP 3+ 可用 `/mtrlock title <玩家名> <称呼>` 给任意玩家设置称呼、
   `/mtrlock title clear <玩家名>` 清除、`/mtrlock title` 查看自己。
   - 称呼最长 16 个 Unicode code point，不能为空、不能含控制字符；含空格需用双引号。
-  - 显示优先级：**自定义称呼（完整显示）> 团队前缀（截两字）> `[独立建造者]`**，聊天栏 / tab / 头顶统一生效。
+  - 显示优先级：**有自定义称呼 → `[称呼]`（完整显示、不截断）> 有团队 → `[团队名前两字]` > 都没有 → 不显示前缀**，聊天栏 / tab / 头顶统一生效。
 
 ## 环境要求
 
@@ -39,7 +40,11 @@
 | Fabric API | 0.92.12+1.20.1 |
 | MTR (Minecraft Transit Railway) | >= 4.0.0（`FABRIC-4.0.0+1.20.1`） |
 | Java | 17+ |
-| 本模组 | mtrlock 1.2.0 |
+| 本模组 | mtrlock 1.2.1 |
+
+> StyledChat（`styledchat`）/ StyledPlayerList（`styledplayerlist`）是**可选**模组。
+> 装了它们时 mtrlock 改用 Placeholder API 暴露前缀（详见“与 StyledChat / StyledPlayerList 共存”），
+> 未装时内置的显示 Mixin 直接生效，**无需任何配置**。
 
 ## 安装
 
@@ -47,7 +52,7 @@
 
 1. 安装 Fabric Loader（1.20.1）。
 2. 把以下 jar 放进 `mods/`：
-   - `mtrlock-1.2.0.jar`
+   - `mtrlock-1.2.1.jar`
    - `fabric-api-0.92.12+1.20.1.jar`
    - `minecraft-transit-railway-FABRIC-4.0.0+1.20.1.jar`
 3. 启动一次服务端，会生成 `config/mtrperm/ownership.json`。
@@ -78,6 +83,55 @@
 - 可手工编辑（建议在服务端关闭时）。
 - **文件损坏时**：本次运行内归属判为 fail-open（大家都能编辑 / 删除），但**坏文件不会被覆盖**；修复 JSON 或删除文件后重启即可恢复。
 
+## 与 StyledChat / StyledPlayerList 共存
+
+mtrlock 启动时会检测服务器是否装了 **StyledChat**（mod id `styledchat`）或
+**StyledPlayerList**（mod id `styledplayerlist`），任一存在时：
+
+- mtrlock **不再注入**内置的显示名前缀 Mixin（`EntityDisplayNameMixin` /
+  `PlayerListNameMixin` / `ClientDisplayNameMixin` 全部早退），避免和它们重复加前缀；
+- 改为用 [Placeholder API](https://modrinth.com/mod/placeholder-api)（mod id `placeholder-api`，
+  作者 Patbox，两者都已内置该库）注册下面三个占位符，由服主在它们的配置里自行引用：
+
+| 占位符 | 含义 | 无数据时 |
+|---|---|---|
+| `%mtrlock_prefix%` | 完整前缀，如 `[红石]` / `[服主]` | 空串 |
+| `%mtrlock_title%` | 自定义称呼（不含方括号），如 `服主` | 空串 |
+| `%mtrlock_team%` | 团队名前两字（不含方括号），如 `红石` | 空串 |
+
+优先级与内置一致：**称呼 > 团队 > 不显示**。
+
+### StyledChat 参考配置
+
+配置文件：`config/styled-chat.json`。把玩家名 / 聊天行加上前缀，例如：
+
+```json
+{
+  "defaultStyle": {
+    "displayName": "%mtrlock_prefix% %player:displayname%",
+    "messages": {
+      "chat": "%mtrlock_prefix% <${player}> ${message}"
+    }
+  }
+}
+```
+
+### StyledPlayerList 参考配置
+
+配置文件：`config/styledplayerlist/config.json`。在玩家名格式里加上前缀，例如：
+
+```json
+{
+  "playerName": {
+    "playerNameFormat": "%mtrlock_prefix% %player:displayname%"
+  }
+}
+```
+
+> 上面的 JSON 只展示需要改动的字段，实际配置文件还有其它字段；
+> **具体字段名 / 结构以你安装的模组版本为准**。
+> 没装 StyledChat / StyledPlayerList 时，mtrlock 内置 Mixin 直接生效，**无需任何配置**。
+
 ## 已知限制
 
 - **网页 dashboard（浏览器）**没有玩家身份，不经过权限拦截；网页创建也不会写入归属（网页删除仍会走清理）。
@@ -89,7 +143,7 @@
   **服务端拦截才是最终权威。**
 - 客户端提示走快捷栏，服务端提示走聊天栏。
 - 团队信息（成员、分享）通过 S2C 同步到客户端，进服后约 1-2 秒内到达；在此之前客户端对非创建者 fail-open（不误拦），服务端仍精确拦截。
-- **S2C 协议在 1.2.0 新增 `titles` 字段**：服务端 1.2.0 与客户端 1.1.x（或反之）混用会不兼容，请两端同步升级到同一版本。
+- **S2C 协议在 1.2.1 新增 `titles` 字段**：服务端 1.2.1 与客户端 1.1.x（或反之）混用会不兼容，请两端同步升级到同一版本。
 
 > 完整验证步骤与排查清单见仓库根目录的 `VERIFY.md`。
 

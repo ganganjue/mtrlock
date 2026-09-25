@@ -1,5 +1,6 @@
 package com.mtrstar.lock.mixin;
 
+import com.mtrstar.lock.compat.DisplayModDetector;
 import com.mtrstar.lock.team.TeamPrefix;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -39,6 +40,10 @@ public abstract class EntityDisplayNameMixin {
 
     @Inject(method = "getDisplayName", at = @At("RETURN"), cancellable = true)
     private void mtrlock$addTeamPrefix(CallbackInfoReturnable<Text> cir) {
+        // 检测到 StyledChat / StyledPlayerList 时不注入显示名，改用 Placeholder（见 MtrlockPlaceholders）。
+        if (DisplayModDetector.hasConflictingDisplayMod()) {
+            return;
+        }
         if (!((Object) this instanceof ServerPlayerEntity player)) {
             return;
         }
@@ -47,6 +52,10 @@ public abstract class EntityDisplayNameMixin {
             return;
         }
         final String prefix = TeamPrefix.of(player.getUuidAsString());
+        if (prefix.isEmpty()) {
+            // 无团队无称呼：不加前缀，也不加多余空格。
+            return;
+        }
         cir.setReturnValue(Text.literal(prefix + " ").append(original));
     }
 }

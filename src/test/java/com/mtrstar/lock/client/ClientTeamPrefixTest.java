@@ -46,7 +46,7 @@ class ClientTeamPrefixTest {
     @Test
     @DisplayName("常量：NO_TEAM 与服务端一致；PREFIX_CHARS = 2")
     void constants() {
-        assertEquals("[独立建造者]", ClientTeamPrefix.NO_TEAM);
+        assertEquals("", ClientTeamPrefix.NO_TEAM);
         assertEquals(2, ClientTeamPrefix.PREFIX_CHARS);
     }
 
@@ -63,9 +63,10 @@ class ClientTeamPrefixTest {
     // =====================================================================
 
     @Test
-    @DisplayName("无任何团队数据 → NO_TEAM")
+    @DisplayName("无任何团队数据 → NO_TEAM（空串，不显示前缀）")
     void noTeam() {
         assertSame(ClientTeamPrefix.NO_TEAM, ClientTeamPrefix.of(ALICE));
+        assertEquals("", ClientTeamPrefix.of(ALICE));
     }
 
     @Test

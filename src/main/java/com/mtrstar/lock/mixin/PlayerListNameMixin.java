@@ -1,5 +1,6 @@
 package com.mtrstar.lock.mixin;
 
+import com.mtrstar.lock.compat.DisplayModDetector;
 import com.mtrstar.lock.team.TeamPrefix;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
@@ -34,7 +35,18 @@ public abstract class PlayerListNameMixin {
     @Inject(method = "getPlayerListName", at = @At("RETURN"), cancellable = true)
     private void mtrlock$tabPrefix(CallbackInfoReturnable<Text> cir) {
         final ServerPlayerEntity self = (ServerPlayerEntity) (Object) this;
+        // 检测到 StyledPlayerList（或 StyledChat）时不注入 tab 前缀，改用 Placeholder。
+        // 原版 getPlayerListName() 恒返回 null：这里必须显式回填名字，否则 tab 会空白。
+        if (DisplayModDetector.hasConflictingDisplayMod()) {
+            cir.setReturnValue(self.getName());
+            return;
+        }
         final String prefix = TeamPrefix.of(self.getUuidAsString());
+        if (prefix.isEmpty()) {
+            // 无团队无称呼：原版返回 null 会让 tab 空白，回填名字。
+            cir.setReturnValue(self.getName());
+            return;
+        }
         cir.setReturnValue(Text.literal(prefix + " " + self.getName().getString()));
     }
 }

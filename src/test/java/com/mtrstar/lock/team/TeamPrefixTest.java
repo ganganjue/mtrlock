@@ -44,7 +44,7 @@ class TeamPrefixTest {
     @Test
     @DisplayName("常量：NO_TEAM / PREFIX_CHARS 与约定一致")
     void constants() {
-        assertEquals("[独立建造者]", TeamPrefix.NO_TEAM);
+        assertEquals("", TeamPrefix.NO_TEAM);
         assertEquals(2, TeamPrefix.PREFIX_CHARS);
     }
 
@@ -140,7 +140,25 @@ class TeamPrefixTest {
     }
 
     @Test
-    @DisplayName("of：lookup 返回 null / 空 → NO_TEAM")
+    @DisplayName("of：无团队无称呼 → 空串（1.2.0 起不再显示 [独立建造者]）")
+    void ofNoTeamReturnsEmptyString() {
+        TeamPrefix.setTitleLookup(uuid -> null);
+        TeamPrefix.setLookup(uuid -> null);
+        assertEquals("", TeamPrefix.of(ALICE));
+    }
+
+    @Test
+    @DisplayName("of(uuid, titles, teams) seam：注入来源直接决定前缀")
+    void ofWithInjectedLookups() {
+        assertEquals("[局长]", TeamPrefix.of(ALICE, uuid -> "局长", uuid -> "红石铁路局"));
+        assertEquals("[红石]", TeamPrefix.of(ALICE, uuid -> null, uuid -> "红石铁路局"));
+        assertEquals("", TeamPrefix.of(ALICE, uuid -> null, uuid -> null));
+        assertEquals("", TeamPrefix.of(ALICE, null, null));
+        assertEquals("", TeamPrefix.of(null, uuid -> "局长", uuid -> "红石"));
+    }
+
+    @Test
+    @DisplayName("of：lookup 返回 null / 空 → NO_TEAM（空串）")
     void ofNoTeam() {
         TeamPrefix.setLookup(uuid -> null);
         assertEquals(TeamPrefix.NO_TEAM, TeamPrefix.of(ALICE));

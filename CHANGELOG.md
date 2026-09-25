@@ -3,6 +3,14 @@
 mtrlock（MTR 线路 / 车站 / 车厂权限模组）的版本变更记录。
 版本号以 `gradle.properties` 的 `version` 为准，构建产物为 `build/libs/mtrlock-<version>.jar`（已 remap）。
 
+## [1.2.1]
+
+显示前缀调整 + StyledChat / StyledPlayerList 共存支持。
+
+- **去掉 “独立建造者” 默认前缀**：无团队无称呼时不再显示任何前缀（聊天栏 / tab 列表 / 头顶名字统一生效）。
+- **新增 Placeholder API 支持**：与 StyledChat / StyledPlayerList 共存时，不再注入显示 Mixin，
+  改用 `%mtrlock_prefix%` / `%mtrlock_title%` / `%mtrlock_team%` 占位符（由服主在对方的配置里引用）。
+
 ## [1.2.0]
 
 新增功能：管理员自定义称呼（title）。

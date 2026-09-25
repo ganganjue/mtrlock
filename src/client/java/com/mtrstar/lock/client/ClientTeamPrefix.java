@@ -24,8 +24,12 @@ import java.util.Set;
  */
 public final class ClientTeamPrefix {
 
-    /** 没有任何称呼 / 团队时使用的前缀（与服务端 {@link TeamPrefix#NO_TEAM} 一致）。 */
-    public static final String NO_TEAM = "[独立建造者]";
+    /**
+     * 没有任何称呼 / 团队时使用的前缀（与服务端 {@link TeamPrefix#NO_TEAM} 一致）。
+     *
+     * <p>1.2.0：<b>空串</b>——无团队无称呼时不再显示任何前缀。</p>
+     */
+    public static final String NO_TEAM = "";
 
     /** 团队名前缀保留的字符数（按 Unicode code point）。 */
     public static final int PREFIX_CHARS = 2;
@@ -36,7 +40,7 @@ public final class ClientTeamPrefix {
     /**
      * 玩家在客户端显示用的前缀。
      *
-     * <p><b>永不返回 null</b>：称呼 / 团队都没有、或非法 uuid → {@link #NO_TEAM}。</p>
+     * <p><b>永不返回 null</b>：称呼 / 团队都没有、或非法 uuid → {@link #NO_TEAM}（空串）。</p>
      *
      * @param playerUuid 玩家 UUID（{@link net.minecraft.entity.Entity#getUuidAsString()}）
      * @return 形如 {@code [红石局长]}（称呼，完整）/ {@code [红石]}（团队，截两字）/ {@link #NO_TEAM}

@@ -1,5 +1,7 @@
 package com.mtrstar.lock;
 
+import com.mtrstar.lock.compat.DisplayModDetector;
+import com.mtrstar.lock.compat.MtrlockPlaceholders;
 import com.mtrstar.lock.network.OwnershipSync;
 import com.mtrstar.lock.perm.OwnershipData;
 import com.mtrstar.lock.team.ShareData;
@@ -28,6 +30,16 @@ public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
 @Override
 public void onInitialize() {
+// 1.2.0：显示前缀兼容层。
+// 装了 StyledChat / StyledPlayerList 时，三个显示 Mixin 会自行早退（不注入），
+// 改由 placeholder-api 暴露 %mtrlock_prefix% / %mtrlock_title% / %mtrlock_team%。
+if (DisplayModDetector.hasConflictingDisplayMod()) {
+MtrlockPlaceholders.register();
+LOGGER.info("[mtrlock] 检测到 StyledChat/StyledPlayerList，显示前缀改用 Placeholder API");
+} else {
+LOGGER.info("[mtrlock] 显示前缀使用内置 Mixin（未检测到冲突模组）");
+}
+
 // 1.1.0 阶段 4：注册命令
 // 1.1.0 阶段 5：团队 / 分享变更后推送 S2C 全量快照
 TeamData.setChangeListener(OwnershipSync::pushToAll);

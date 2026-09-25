@@ -24,8 +24,12 @@ import java.util.List;
  */
 public final class TeamPrefix {
 
-    /** 没有任何称呼 / 团队时使用的前缀。 */
-    public static final String NO_TEAM = "[独立建造者]";
+    /**
+     * 没有任何称呼 / 团队时使用的前缀。
+     *
+     * <p>1.2.0：<b>空串</b>——无团队无称呼时不再显示任何前缀（包括方括号 / 空格）。</p>
+     */
+    public static final String NO_TEAM = "";
 
     /** 团队名前缀保留的字符数（按 Unicode code point）。 */
     public static final int PREFIX_CHARS = 2;
@@ -88,24 +92,40 @@ public final class TeamPrefix {
     /**
      * 玩家显示用的前缀。
      *
-     * <p><b>永不返回 null</b>：称呼 / 团队都没有、或非法 uuid → {@link #NO_TEAM}。</p>
+     * <p><b>永不返回 null</b>：称呼 / 团队都没有、或非法 uuid → {@link #NO_TEAM}（空串）。</p>
      *
      * @param playerUuid 玩家 UUID（{@link net.minecraft.entity.Entity#getUuidAsString()}）
      * @return 形如 {@code [红石局长]}（称呼，完整）/ {@code [红石]}（团队，截两字）/ {@link #NO_TEAM}
      */
     public static String of(String playerUuid) {
+        return of(playerUuid, titleLookup, teamLookup);
+    }
+
+    /**
+     * 与 {@link #of(String)} 完全同逻辑，但由调用方直接注入称呼 / 团队来源。
+     *
+     * <p>这是给单元测试与 Placeholder 兼容层（{@code com.mtrstar.lock.compat.MtrlockPlaceholders}）
+     * 使用的 seam：生产调用仍走 {@link #of(String)}（单例 lookup），
+     * 这里不触碰 {@link TitleData} / {@link TeamData} 单例，纯 JVM 可测。</p>
+     *
+     * @param playerUuid 玩家 UUID
+     * @param titles     称呼来源；{@code null} 视为“无称呼”
+     * @param teams      团队来源；{@code null} 视为“无团队”
+     * @return 同 {@link #of(String)}，永不返回 null
+     */
+    public static String of(String playerUuid, TitleLookup titles, TeamNameLookup teams) {
         if (playerUuid == null || playerUuid.isEmpty()) {
             return NO_TEAM;
         }
 
         // 1) 自定义称呼优先，完整显示、不截断
-        final String title = titleLookup.titleOf(playerUuid);
+        final String title = titles == null ? null : titles.titleOf(playerUuid);
         if (title != null && !title.isEmpty()) {
             return "[" + title + "]";
         }
 
         // 2) 团队名前两字
-        final String firstTeamName = teamLookup.firstTeamName(playerUuid);
+        final String firstTeamName = teams == null ? null : teams.firstTeamName(playerUuid);
         if (firstTeamName == null || firstTeamName.isEmpty()) {
             return NO_TEAM;
         }

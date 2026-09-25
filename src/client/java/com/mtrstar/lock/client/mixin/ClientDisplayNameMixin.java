@@ -1,6 +1,7 @@
 package com.mtrstar.lock.client.mixin;
 
 import com.mtrstar.lock.client.ClientTeamPrefix;
+import com.mtrstar.lock.compat.DisplayModDetector;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.text.Text;
@@ -30,6 +31,10 @@ public abstract class ClientDisplayNameMixin {
 
     @Inject(method = "getDisplayName", at = @At("RETURN"), cancellable = true)
     private void mtrlock$clientPrefix(CallbackInfoReturnable<Text> cir) {
+        // 检测到 StyledChat / StyledPlayerList 时不注入显示名，改用 Placeholder（见 MtrlockPlaceholders）。
+        if (DisplayModDetector.hasConflictingDisplayMod()) {
+            return;
+        }
         if (!((Object) this instanceof ClientPlayerEntity player)) {
             return;
         }
@@ -38,6 +43,10 @@ public abstract class ClientDisplayNameMixin {
             return;
         }
         final String prefix = ClientTeamPrefix.of(player.getUuidAsString());
+        if (prefix.isEmpty()) {
+            // 无团队无称呼：不加前缀，也不加多余空格。
+            return;
+        }
         cir.setReturnValue(Text.literal(prefix + " ").append(original));
     }
 }
