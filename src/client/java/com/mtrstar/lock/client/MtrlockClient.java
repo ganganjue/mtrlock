@@ -29,6 +29,7 @@ public class MtrlockClient implements ClientModInitializer {
                         ClientOwnership.setOperator(snapshot.operator());
                         ClientOwnership.setShareSnapshot(snapshot.shares(), teamMembers);
                         ClientOwnership.setTeamNames(teamNames);
+                        ClientOwnership.setTitles(snapshot.titles());
                     });
                 });
 

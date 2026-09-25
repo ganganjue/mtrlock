@@ -4,6 +4,7 @@ import com.mtrstar.lock.network.OwnershipSync;
 import com.mtrstar.lock.perm.OwnershipData;
 import com.mtrstar.lock.team.ShareData;
 import com.mtrstar.lock.team.TeamData;
+import com.mtrstar.lock.team.TitleData;
 import com.mtrstar.lock.command.MtrlockCommand;
 import com.mtrstar.lock.command.TeamCommand;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
@@ -31,6 +32,8 @@ public void onInitialize() {
 // 1.1.0 阶段 5：团队 / 分享变更后推送 S2C 全量快照
 TeamData.setChangeListener(OwnershipSync::pushToAll);
 ShareData.setChangeListener(OwnershipSync::pushToAll);
+// 1.2.0：自定义称呼变更后也推送 S2C 全量快照
+TitleData.setChangeListener(OwnershipSync::pushToAll);
 
 CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
 TeamCommand.register(dispatcher);
@@ -50,6 +53,8 @@ OwnershipData.getInstance().load();
 TeamData.getInstance().load();
 ShareData.getInstance().load();
 ShareData.getInstance().cleanupOrphanTeams();
+// 1.2.0：自定义称呼加载（放在 TeamData / ShareData 之后）
+TitleData.getInstance().load();
 // 功能 6：保存 server 引用，供 setCreator/removeCreator 后的 S2C 全量推送使用
 OwnershipSync.setServer(server);
 });
@@ -58,6 +63,8 @@ OwnershipData.getInstance().save();
 // 1.1.0：分享 / 团队数据写回
 ShareData.getInstance().save();
 TeamData.getInstance().save();
+// 1.2.0：自定义称呼写回
+TitleData.getInstance().save();
 });
 ServerLifecycleEvents.SERVER_STOPPED.register(server -> OwnershipSync.clearServer());
 
@@ -69,10 +76,12 @@ OwnershipSync.pushTo(handler.getPlayer()));
 OwnershipData ownership = OwnershipData.getInstance();
 TeamData teams = TeamData.getInstance();
 ShareData shares = ShareData.getInstance();
+TitleData titles = TitleData.getInstance();
 Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 ownership.save();
 shares.save();
 teams.save();
+titles.save();
 }, "mtrlock-data-save"));
 }
 

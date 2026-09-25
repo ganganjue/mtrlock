@@ -5,6 +5,7 @@ import com.mtrstar.lock.perm.OwnershipData;
 import com.mtrstar.lock.team.ShareData;
 import com.mtrstar.lock.team.Team;
 import com.mtrstar.lock.team.TeamData;
+import com.mtrstar.lock.team.TitleData;
 import io.netty.buffer.Unpooled;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.network.PacketByteBuf;
@@ -57,8 +58,9 @@ public final class OwnershipSync {
         }
 
         final Map<String, Set<String>> shares = ShareData.getInstance().getAllShares();
+        final Map<String, String> titles = new HashMap<>(TitleData.getInstance().getAll());
 
-        return new Snapshot(ownership, teams, shares, false); // operator 占位；实际值在 send() 逐玩家写入
+        return new Snapshot(ownership, teams, shares, titles, false); // operator 占位；实际值在 send() 逐玩家写入
     }
 
     private static void send(ServerPlayerEntity player, Snapshot snap) {
@@ -87,6 +89,12 @@ public final class OwnershipSync {
             buf.writeString(e.getKey());
             buf.writeVarInt(e.getValue().size());
             for (String t : e.getValue()) buf.writeString(t);
+        }
+        // 1.2.0：自定义称呼（playerUuid → title）。加字段后 S2C 与 1.1.x 不兼容，两端需同步升级。
+        buf.writeVarInt(s.titles().size());
+        for (Map.Entry<String, String> e : s.titles().entrySet()) {
+            buf.writeString(e.getKey());
+            buf.writeString(e.getValue());
         }
     }
 
@@ -119,7 +127,12 @@ public final class OwnershipSync {
             shares.put(oid, tids);
         }
 
-        return new Snapshot(ownership, teams, shares, operator);
+        // 1.2.0：自定义称呼
+        final int ttn = buf.readVarInt();
+        final Map<String, String> titles = new HashMap<>(Math.max(4, ttn));
+        for (int i = 0; i < ttn; i++) titles.put(buf.readString(), buf.readString());
+
+        return new Snapshot(ownership, teams, shares, titles, operator);
     }
 
     public record TeamSnapshot(String name, String ownerUuid, Set<String> members) {
@@ -128,6 +141,7 @@ public final class OwnershipSync {
     public record Snapshot(Map<String, String> ownership,
                            Map<String, TeamSnapshot> teams,
                            Map<String, Set<String>> shares,
+                           Map<String, String> titles,
                            boolean operator) {
     }
 }

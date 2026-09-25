@@ -133,4 +133,50 @@ class ClientTeamPrefixTest {
         ClientOwnership.clear();
         assertSame(ClientTeamPrefix.NO_TEAM, ClientTeamPrefix.of(ALICE));
     }
+
+    // =====================================================================
+    // 自定义称呼优先（1.2.0）
+    // =====================================================================
+
+    @Test
+    @DisplayName("有自定义称呼 → 优先用称呼，完整显示不截断")
+    void titleOverridesTeam() {
+        givenTeams(Map.of(TEAM_A, Set.of(ALICE)), Map.of(TEAM_A, "红石铁路局"));
+        ClientOwnership.setTitles(Map.of(ALICE, "红石局长"));
+        assertEquals("[红石局长]", ClientTeamPrefix.of(ALICE));
+    }
+
+    @Test
+    @DisplayName("只有称呼、没有团队 → 用称呼")
+    void titleOnly() {
+        ClientOwnership.setTitles(Map.of(ALICE, "管理员"));
+        assertEquals("[管理员]", ClientTeamPrefix.of(ALICE));
+    }
+
+    @Test
+    @DisplayName("无称呼 → 回退团队前缀")
+    void noTitleFallsBackToTeam() {
+        givenTeams(Map.of(TEAM_A, Set.of(ALICE)), Map.of(TEAM_A, "红石铁路局"));
+        ClientOwnership.setTitles(Map.of());
+        assertEquals("[红石]", ClientTeamPrefix.of(ALICE));
+    }
+
+    @Test
+    @DisplayName("称呼 16 个 code point 完整显示（不截断）")
+    void longTitleNotTruncated() {
+        final String title = "abcdefghijklmnop"; // 16
+        givenTeams(Map.of(TEAM_A, Set.of(ALICE)), Map.of(TEAM_A, "红石铁路局"));
+        ClientOwnership.setTitles(Map.of(ALICE, title));
+        assertEquals("[" + title + "]", ClientTeamPrefix.of(ALICE));
+    }
+
+    @Test
+    @DisplayName("clear() 同时清掉称呼（清后 → NO_TEAM）")
+    void clearClearsTitles() {
+        ClientOwnership.setTitles(Map.of(ALICE, "红石局长"));
+        assertEquals("[红石局长]", ClientTeamPrefix.of(ALICE));
+
+        ClientOwnership.clear();
+        assertSame(ClientTeamPrefix.NO_TEAM, ClientTeamPrefix.of(ALICE));
+    }
 }

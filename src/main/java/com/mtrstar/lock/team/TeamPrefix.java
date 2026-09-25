@@ -3,25 +3,28 @@ package com.mtrstar.lock.team;
 import java.util.List;
 
 /**
- * 团队名前缀（聊天 / 显示名用）。
+ * 玩家显示名前缀（服务端：聊天栏 / tab / 加入离开 / 死亡消息）。
  *
- * <p>规则：</p>
+ * <p>优先级：<b>自定义称呼（{@link TitleData}）&gt; 团队前缀 &gt; {@link #NO_TEAM}</b>。</p>
  * <ul>
- *   <li>玩家没有任何团队（或 uuid 非法）→ {@link #NO_TEAM}；</li>
- *   <li>玩家有团队 → 取"最早加入的团队"（{@link TeamData#getTeamsOfPlayer(String)} 已按
- *       createdAt 稳定排序，第一个即最早），再把团队名前 {@value #PREFIX_CHARS} 个
- *       Unicode code point 包进方括号，例如“红石铁路局” → {@code [红石]}；</li>
- *   <li>按 code point 截取：中文按字算，emoji（代理对）不会被从中间截断。</li>
+ *   <li>uuid 非法 → {@link #NO_TEAM}；</li>
+ *   <li>有自定义称呼 → {@code "[" + title + "]"}，<b>完整显示、不截断</b>
+ *       （管理员起的称呼应完整展示）；</li>
+ *   <li>否则取"最早加入的团队"（{@link TeamData#getTeamsOfPlayer(String)} 已按 createdAt
+ *       稳定排序，第一个即最早），把团队名前 {@value #PREFIX_CHARS} 个 Unicode code point
+ *       包进方括号，例如“红石铁路局” → {@code [红石]}；</li>
+ *   <li>都没有 → {@link #NO_TEAM}。</li>
  * </ul>
  *
  * <p>本类<b>纯函数</b>为主（{@link #firstChars(String, int)} / {@link #of(String)}），
- * 唯一的外部依赖是"按 uuid 取最早团队名"，通过 {@link TeamNameLookup} seam 注入，
- * 生产默认走 {@link TeamData} 单例，纯 JVM 测试走桩——因此本类<b>类加载时不会触碰
- * FabricLoader</b>（默认 lookup 是 lambda，只有在真正调用时才会用到 {@code TeamData}）。</p>
+ * 两个外部数据源（称呼、团队名）分别通过 {@link TitleLookup} / {@link TeamNameLookup}
+ * seam 注入：生产默认走 {@link TitleData} / {@link TeamData} 单例，纯 JVM 测试走桩——
+ * 因此本类<b>类加载时不会触碰 FabricLoader</b>（默认 lookup 是 lambda，只有真正调用时
+ * 才会用到那些单例）。</p>
  */
 public final class TeamPrefix {
 
-    /** 没有任何团队时使用的前缀。 */
+    /** 没有任何称呼 / 团队时使用的前缀。 */
     public static final String NO_TEAM = "[独立建造者]";
 
     /** 团队名前缀保留的字符数（按 Unicode code point）。 */
@@ -42,8 +45,23 @@ public final class TeamPrefix {
         String firstTeamName(String playerUuid);
     }
 
-    /** 生产 lookup：延迟到真正调用时才触碰 {@link TeamData} 单例（类加载不触发 FabricLoader）。 */
-    private static final TeamNameLookup PRODUCTION = uuid -> {
+    /**
+     * "按 uuid 查自定义称呼"的最小接口。
+     *
+     * <p>生产实现走 {@link TitleData#getTitle(String)}；纯 JVM 测试注入内存桩。</p>
+     */
+    @FunctionalInterface
+    public interface TitleLookup {
+
+        /**
+         * @param playerUuid 玩家 UUID
+         * @return 该玩家的自定义称呼；没有返回 {@code null}
+         */
+        String titleOf(String playerUuid);
+    }
+
+    /** 生产团队 lookup：延迟到真正调用时才触碰 {@link TeamData} 单例。 */
+    private static final TeamNameLookup PRODUCTION_TEAMS = uuid -> {
         final List<Team> teams = TeamData.getInstance().getTeamsOfPlayer(uuid);
         if (teams == null || teams.isEmpty()) {
             return null;
@@ -52,33 +70,47 @@ public final class TeamPrefix {
         return first == null ? null : first.getName();
     };
 
-    /** 当前 lookup（volatile：测试可替换；生产恒为 {@link #PRODUCTION}）。 */
-    private static volatile TeamNameLookup lookup = PRODUCTION;
+    /** 生产称呼 lookup：延迟到真正调用时才触碰 {@link TitleData} 单例。 */
+    // 注意：必须写成 lambda，而不是 TitleData.getInstance()::getTitle ——
+    // 绑定方法引用会在 TeamPrefix 类初始化时【立即】调用 getInstance()（触发 FabricLoader）；
+    // lambda 则延迟到真正调用 of() 时才触碰单例。
+    private static final TitleLookup PRODUCTION_TITLES = uuid -> TitleData.getInstance().getTitle(uuid);
+
+    /** 当前团队 lookup（volatile：测试可替换；生产恒为 {@link #PRODUCTION_TEAMS}）。 */
+    private static volatile TeamNameLookup teamLookup = PRODUCTION_TEAMS;
+
+    /** 当前称呼 lookup（volatile：测试可替换；生产恒为 {@link #PRODUCTION_TITLES}）。 */
+    private static volatile TitleLookup titleLookup = PRODUCTION_TITLES;
 
     private TeamPrefix() {
     }
 
     /**
-     * 玩家聊天 / 显示用的团队前缀。
+     * 玩家显示用的前缀。
      *
-     * <p><b>永不返回 null</b>：无团队 / 非法 uuid / 团队名为空 → {@link #NO_TEAM}。</p>
+     * <p><b>永不返回 null</b>：称呼 / 团队都没有、或非法 uuid → {@link #NO_TEAM}。</p>
      *
      * @param playerUuid 玩家 UUID（{@link net.minecraft.entity.Entity#getUuidAsString()}）
-     * @return 形如 {@code [红石]} 或 {@link #NO_TEAM}
+     * @return 形如 {@code [红石局长]}（称呼，完整）/ {@code [红石]}（团队，截两字）/ {@link #NO_TEAM}
      */
     public static String of(String playerUuid) {
         if (playerUuid == null || playerUuid.isEmpty()) {
             return NO_TEAM;
         }
-        final String firstTeamName = lookup.firstTeamName(playerUuid);
+
+        // 1) 自定义称呼优先，完整显示、不截断
+        final String title = titleLookup.titleOf(playerUuid);
+        if (title != null && !title.isEmpty()) {
+            return "[" + title + "]";
+        }
+
+        // 2) 团队名前两字
+        final String firstTeamName = teamLookup.firstTeamName(playerUuid);
         if (firstTeamName == null || firstTeamName.isEmpty()) {
             return NO_TEAM;
         }
         final String prefix = firstChars(firstTeamName, PREFIX_CHARS);
-        if (prefix.isEmpty()) {
-            return NO_TEAM;
-        }
-        return "[" + prefix + "]";
+        return prefix.isEmpty() ? NO_TEAM : "[" + prefix + "]";
     }
 
     /**
@@ -105,13 +137,19 @@ public final class TeamPrefix {
     // 测试 seam（包内可见）
     // =====================================================================
 
-    /** 测试注入 lookup；传 null 恢复生产实现。 */
+    /** 测试注入团队 lookup；传 null 恢复生产实现。 */
     static void setLookup(TeamNameLookup replacement) {
-        lookup = replacement != null ? replacement : PRODUCTION;
+        teamLookup = replacement != null ? replacement : PRODUCTION_TEAMS;
     }
 
-    /** 恢复生产 lookup。 */
+    /** 测试注入称呼 lookup；传 null 恢复生产实现。 */
+    static void setTitleLookup(TitleLookup replacement) {
+        titleLookup = replacement != null ? replacement : PRODUCTION_TITLES;
+    }
+
+    /** 恢复两个生产 lookup。 */
     static void resetLookup() {
-        lookup = PRODUCTION;
+        teamLookup = PRODUCTION_TEAMS;
+        titleLookup = PRODUCTION_TITLES;
     }
 }

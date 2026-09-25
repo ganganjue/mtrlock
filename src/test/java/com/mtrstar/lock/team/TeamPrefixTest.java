@@ -1,6 +1,7 @@
 package com.mtrstar.lock.team;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -24,6 +25,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class TeamPrefixTest {
 
     private static final String ALICE = "22222222-2222-2222-2222-222222222222";
+
+    @BeforeEach
+    void setUp() {
+        // 默认不注入称呼，避免 of() 的称呼查找触碰 TitleData 单例（纯 JVM 会 NPE）
+        TeamPrefix.setTitleLookup(uuid -> null);
+    }
 
     @AfterEach
     void tearDown() {
@@ -162,5 +169,63 @@ class TeamPrefixTest {
         assertEquals('[', prefix.charAt(0));
         assertEquals(']', prefix.charAt(prefix.length() - 1));
         assertFalse(prefix.equals(TeamPrefix.NO_TEAM));
+    }
+
+    // =====================================================================
+    // 自定义称呼优先（1.2.0）
+    // =====================================================================
+
+    @Test
+    @DisplayName("有自定义称呼 → 优先用称呼，完整显示不截断")
+    void titleOverridesTeam() {
+        TeamPrefix.setTitleLookup(uuid -> "红石局长");
+        TeamPrefix.setLookup(uuid -> "红石铁路局");
+        assertEquals("[红石局长]", TeamPrefix.of(ALICE));
+    }
+
+    @Test
+    @DisplayName("只有称呼、没有团队 → 用称呼")
+    void titleOnly() {
+        TeamPrefix.setTitleLookup(uuid -> "管理员");
+        TeamPrefix.setLookup(uuid -> null);
+        assertEquals("[管理员]", TeamPrefix.of(ALICE));
+    }
+
+    @Test
+    @DisplayName("称呼为空 → 回退团队前缀（仍截两字）")
+    void emptyTitleFallsBackToTeam() {
+        TeamPrefix.setTitleLookup(uuid -> "");
+        TeamPrefix.setLookup(uuid -> "红石铁路局");
+        assertEquals("[红石]", TeamPrefix.of(ALICE));
+    }
+
+    @Test
+    @DisplayName("称呼 16 个 code point 完整显示（不截断）")
+    void longTitleNotTruncated() {
+        final String title = "abcdefghijklmnop"; // 16
+        TeamPrefix.setTitleLookup(uuid -> title);
+        TeamPrefix.setLookup(uuid -> "红石铁路局");
+        assertEquals("[" + title + "]", TeamPrefix.of(ALICE));
+    }
+
+    @Test
+    @DisplayName("称呼与团队都没有 → NO_TEAM")
+    void neitherTitleNorTeam() {
+        TeamPrefix.setTitleLookup(uuid -> null);
+        TeamPrefix.setLookup(uuid -> null);
+        assertSame(TeamPrefix.NO_TEAM, TeamPrefix.of(ALICE));
+    }
+
+    @Test
+    @DisplayName("称呼命中时不再查团队 lookup")
+    void titleHitSkipsTeamLookup() {
+        final boolean[] teamCalled = new boolean[1];
+        TeamPrefix.setTitleLookup(uuid -> "局长");
+        TeamPrefix.setLookup(uuid -> {
+            teamCalled[0] = true;
+            return "红石铁路局";
+        });
+        assertEquals("[局长]", TeamPrefix.of(ALICE));
+        assertFalse(teamCalled[0]);
     }
 }
