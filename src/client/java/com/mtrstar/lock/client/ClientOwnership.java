@@ -17,6 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li>{@code operator}：当前客户端玩家是否 OP 3+（服务端随包逐个下发）；</li>
  *   <li>{@code OBJECT_TEAMS} / {@code TEAM_MEMBERS}：分享 / 团队快照
  *       （<b>阶段 5</b> S2C 填充，阶段 3 恒为空）；</li>
+ *   <li>{@code TEAM_NAMES}：teamId → 团队名（<b>阶段 6</b> S2C 填充，供客户端显示名 / 头顶名字前缀使用）；</li>
  *   <li>{@code shareInfoSynced}：是否已收到分享 / 团队快照（阶段 5 才置 true）。</li>
  * </ul>
  */
@@ -29,6 +30,9 @@ public final class ClientOwnership {
 
     /** teamId → 成员 UUID 集合（阶段 5 S2C 填充；阶段 3 恒为空）。 */
     private static final Map<String, Set<String>> TEAM_MEMBERS = new ConcurrentHashMap<>();
+
+    /** teamId → 团队名（阶段 6 S2C 填充；用于客户端显示名 / 头顶名字前缀）。 */
+    private static final Map<String, String> TEAM_NAMES = new ConcurrentHashMap<>();
 
     private static volatile boolean operator;
 
@@ -160,11 +164,39 @@ public final class ClientOwnership {
         }
     }
 
+    /** 某团队的名字；未知 / 非法参数返回 null。 */
+    public static String getTeamName(String teamId) {
+        return teamId == null ? null : TEAM_NAMES.get(teamId);
+    }
+
+    /**
+     * teamId → 成员 UUID 集合（<b>只读用途</b>：调用方不要修改返回的 map / set）。
+     *
+     * <p>返回内部实时视图（不拷贝）：显示名 / 头顶名字每帧都可能查询，避免反复分配。</p>
+     */
+    public static Map<String, Set<String>> getTeamMembers() {
+        return TEAM_MEMBERS;
+    }
+
+    /** 阶段 6 S2C 同步入口：整体替换 teamId → 团队名。 */
+    public static void setTeamNames(Map<String, String> teamNames) {
+        TEAM_NAMES.clear();
+        if (teamNames == null) {
+            return;
+        }
+        for (Map.Entry<String, String> entry : teamNames.entrySet()) {
+            if (entry.getKey() != null && entry.getValue() != null) {
+                TEAM_NAMES.put(entry.getKey(), entry.getValue());
+            }
+        }
+    }
+
     /** 退出服务器时清空缓存。 */
     public static void clear() {
         OWNERSHIP.clear();
         OBJECT_TEAMS.clear();
         TEAM_MEMBERS.clear();
+        TEAM_NAMES.clear();
         operator = false;
         shareInfoSynced = false;
     }

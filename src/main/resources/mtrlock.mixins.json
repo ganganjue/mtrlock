@@ -9,7 +9,9 @@
 		"RouteFlagPermissionMixin",
 		"DeleteDataRequestSchemaAccessor",
 		"DeleteOwnershipCleanupMixin",
-		"DataChildParentMixin"
+		"DataChildParentMixin",
+		"EntityDisplayNameMixin",
+		"PlayerListNameMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

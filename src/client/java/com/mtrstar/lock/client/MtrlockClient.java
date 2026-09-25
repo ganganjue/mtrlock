@@ -18,14 +18,17 @@ public class MtrlockClient implements ClientModInitializer {
                     final OwnershipSync.Snapshot snapshot = OwnershipSync.read(buf);
 
                     final Map<String, Set<String>> teamMembers = new HashMap<>();
+                    final Map<String, String> teamNames = new HashMap<>();
                     for (var e : snapshot.teams().entrySet()) {
                         teamMembers.put(e.getKey(), e.getValue().members());
+                        teamNames.put(e.getKey(), e.getValue().name());
                     }
 
                     client.execute(() -> {
                         ClientOwnership.setAll(snapshot.ownership());
                         ClientOwnership.setOperator(snapshot.operator());
                         ClientOwnership.setShareSnapshot(snapshot.shares(), teamMembers);
+                        ClientOwnership.setTeamNames(teamNames);
                     });
                 });
 

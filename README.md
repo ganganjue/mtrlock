@@ -14,12 +14,16 @@
 - **客户端预判（功能 6）**：MTR 客户端发包前先本地判定，拒绝时不发包，避免本地“乐观更新”造成世界内视觉不一致。
 - **坏文件保护**：`ownership.json` 损坏时不会被空数据覆盖；删除成功后自动清理归属记录。
 
-- **团队系统（1.1.0）**：玩家可创建 / 加入最多 3 个团队，把对象的编辑权限分享给团队成员。
+- **团队系统**：玩家可创建 / 加入最多 3 个团队，把对象的编辑权限分享给团队成员。
   - 团队命令：`/team create|apply|accept|invite|join|leave|kick|transfer|disband|...`（共 13 个）
   - 分享命令：`/team share|unshare|shares`
   - 查询命令：`/mtrlock my`（列出你创建的对象 ID）、`/mtrlock info <对象ID>`
   - 被踢 / 退队时，该玩家分享给团队的对象自动撤销分享
   - 团队解散时清理所有指向该团队的分享
+
+- **玩家名前缀**：聊天栏、tab 列表、头顶名字显示 `[团队名前两字]`；无团队显示 `[独立建造者]`。
+  - 前缀取“最早加入的团队”名前 2 个 Unicode code point（中文按字算，emoji 不截断）。
+  - 客户端头顶名字基于 S2C 同步的团队快照本地计算，无团队时不误标。
 
 ## 环境要求
 
@@ -30,7 +34,7 @@
 | Fabric API | 0.92.12+1.20.1 |
 | MTR (Minecraft Transit Railway) | >= 4.0.0（`FABRIC-4.0.0+1.20.1`） |
 | Java | 17+ |
-| 本模组 | mtrlock 1.0.0 |
+| 本模组 | mtrlock 1.1.1 |
 
 ## 安装
 
@@ -38,7 +42,7 @@
 
 1. 安装 Fabric Loader（1.20.1）。
 2. 把以下 jar 放进 `mods/`：
-   - `mtrlock-1.0.0.jar`
+   - `mtrlock-1.1.1.jar`
    - `fabric-api-0.92.12+1.20.1.jar`
    - `minecraft-transit-railway-FABRIC-4.0.0+1.20.1.jar`
 3. 启动一次服务端，会生成 `config/mtrperm/ownership.json`。

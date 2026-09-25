@@ -335,3 +335,48 @@ gamemode=creative
   - `PermissionCheckerTest`：21 用例（功能 4 判定逻辑）
   - `PermissionGuardTest`：10 用例（功能 5 编辑/删除请求解析与拒绝判定）
 - 详见 `build/test-results/test/*.xml` 与 README / 提交记录。
+
+---
+
+## 8. 玩家名前缀（阶段 6）：生效范围
+
+> 状态：本环境仅完成 `./gradlew --offline compileJava` + JVM 单元测试
+> （`./gradlew --offline test --rerun-tasks`），**未 in-game 验证**。
+> 下表为基于 yarn 1.20.1+build.10 的字节码反编译确定的预期范围，请在 PC 上按此验证。
+
+聊天栏 / tab / 头顶名字在 1.20.1 走的是**不同方法或不同侧**，因此团队名前缀由三个 Mixin 提供：
+
+| Mixin | 注入点 | 生效范围 |
+|---|---|---|
+| `EntityDisplayNameMixin`（服务端） | `PlayerEntity.getDisplayName()` 的 RETURN（运行时用 `instanceof ServerPlayerEntity` 限定服务端） | **聊天栏 + 加入/离开消息 + 死亡消息** |
+| `PlayerListNameMixin`（服务端） | `ServerPlayerEntity.getPlayerListName()` 的 RETURN | **tab 列表** |
+| `ClientDisplayNameMixin`（客户端） | `PlayerEntity.getDisplayName()` 的 RETURN（运行时用 `instanceof ClientPlayerEntity` 限定客户端） | **头顶名字（nametag，客户端渲染）** |
+
+前缀规则（见 `TeamPrefix`）：取玩家**最早加入**的团队名前 2 个 Unicode code point，
+例如“红石铁路局” → `[红石]`；没有任何团队 → `[独立建造者]`。
+
+**头顶名字（客户端渲染）✅ 已带前缀：**
+头顶 nametag 由客户端实体渲染、走客户端 `getDisplayName()`，由 `ClientDisplayNameMixin` 加前缀。
+客户端拿不到服务端 `TeamData`，因此前缀改由 `ClientTeamPrefix` 基于 S2C 同步的团队快照计算：
+`MtrlockClient` 收到 `mtrlock:sync_ownership` 时同时缓存 `teamId → name`
+（`ClientOwnership.TEAM_NAMES`，新增）与 `teamId → members`；`ClientTeamPrefix.of(uuid)`
+遍历成员表，取包含该玩家、且 **teamId 字典序最小** 的团队名，截前两字包成 `[xx]`；查不到 → `[独立建造者]`。
+
+> 服务端取“最早加入的团队”，但 S2C 不含 `createdAt`，客户端用 **teamId 字典序** 近似，视觉可接受；
+> 两个 `getDisplayName` Mixin 守卫互斥（`ServerPlayerEntity` vs `ClientPlayerEntity`），
+> 同一侧只会命中一个，不会出现双重前缀。
+
+### 8.1 验证点
+
+| # | 场景 | 操作 | 预期结果 |
+|---|---|---|---|
+| 1 | 聊天栏前缀 | 有团队的玩家 A 发言 | `<[团队名前两字] A> ...` |
+| 2 | 无团队前缀 | 无团队的玩家 B 发言 | `<[独立建造者] B> ...` |
+| 3 | tab 列表前缀 | 打开 tab 列表 | A 的名前带 `[团队名前两字]`；B 带 `[独立建造者]` |
+| 4 | 加入/离开消息 | A 进出服务器 | 消息中的玩家名带前缀 |
+| 5 | 死亡消息 | A 死亡 | 死亡消息中的玩家名带前缀 |
+| 6 | 头顶名字 | 观察 A 的头顶 nametag | **带前缀**（客户端渲染，`ClientDisplayNameMixin`；与聊天栏同一团队名前缀语义） |
+
+> 排查：聊天栏没前缀 → 检查 `EntityDisplayNameMixin` 是否在 `mtrlock.mixins.json` 注册、
+> 注入是否成功（`defaultRequire=1` 失败会直接崩）；tab 没前缀 → 检查 `PlayerListNameMixin`
+> 是否注册（它覆盖原版恒为 `null` 的 `getPlayerListName()`）。
