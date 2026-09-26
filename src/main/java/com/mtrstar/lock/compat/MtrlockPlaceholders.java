@@ -19,9 +19,9 @@ import java.util.function.Function;
  * <p>装了两者之一时 {@link DisplayModDetector} 会让三个显示 Mixin 全部早退，
  * 由本类把前缀暴露成占位符，服主在 StyledChat / StyledPlayerList 配置里引用：</p>
  * <ul>
- *   <li>{@code %mtrlock_prefix%} —— 完整前缀（如 {@code [红石]} / {@code [服主]}），无则空串；</li>
- *   <li>{@code %mtrlock_title%}  —— 自定义称呼（不含方括号），无则空串；</li>
- *   <li>{@code %mtrlock_team%}   —— 团队名前两字（不含方括号），无则空串。</li>
+ *   <li>{@code %mtrlock:prefix%} —— 完整前缀（如 {@code [红石]} / {@code [服主]}），无则空串；</li>
+ *   <li>{@code %mtrlock:title%}  —— 自定义称呼（不含方括号），无则空串；</li>
+ *   <li>{@code %mtrlock:team%}   —— 团队名前两字（不含方括号），无则空串。</li>
  * </ul>
  *
  * <p>前缀优先级复用 {@link TeamPrefix#of(String, TeamPrefix.TitleLookup, TeamPrefix.TeamNameLookup)}
@@ -33,14 +33,17 @@ import java.util.function.Function;
  */
 public final class MtrlockPlaceholders {
 
-    /** 完整前缀占位符名（不带方括号外再包一层）。 */
-    public static final String PREFIX_PLACEHOLDER = "mtrlock_prefix";
+    /** 占位符命名空间（用户写 {@code %mtrlock:prefix%}）。 */
+    public static final String NAMESPACE = "mtrlock";
 
-    /** 自定义称呼占位符名。 */
-    public static final String TITLE_PLACEHOLDER = "mtrlock_title";
+    /** 完整前缀占位符名（用户写 {@code %mtrlock:prefix%}）。 */
+    public static final String PREFIX_PLACEHOLDER = "prefix";
 
-    /** 团队名前两字占位符名。 */
-    public static final String TEAM_PLACEHOLDER = "mtrlock_team";
+    /** 自定义称呼占位符名（用户写 {@code %mtrlock:title%}）。 */
+    public static final String TITLE_PLACEHOLDER = "title";
+
+    /** 团队名前两字占位符名（用户写 {@code %mtrlock:team%}）。 */
+    public static final String TEAM_PLACEHOLDER = "team";
 
     /** 生产称呼来源：延迟到真正求值时才触碰 {@link TitleData} 单例。 */
     private static final TeamPrefix.TitleLookup PRODUCTION_TITLES =
@@ -70,10 +73,10 @@ public final class MtrlockPlaceholders {
     }
 
     private static void register(String name, Function<PlaceholderContext, String> resolver) {
-        // 注意：placeholder-api 查表用 Identifier.tryParse(占位符名)。
-        // 形如 %mtrlock_prefix% 的写法不带冒号，Identifier 会默认命名空间为 minecraft，
-        // 因此这里用单参数构造（= minecraft:mtrlock_prefix）才能与用户写的 %mtrlock_prefix% 对上。
-        Placeholders.register(new Identifier(name),
+        // StyledChat / StyledPlayerList 只识别 %命名空间:名称%（如 %luckperms:prefix%）格式。
+        // 必须注册成 mtrlock:<name>；用单参数 Identifier("mtrlock_prefix") 会落到
+        // minecraft:mtrlock_prefix，用户写 %mtrlock_prefix% 就会解析不到、字面显示。
+        Placeholders.register(new Identifier(NAMESPACE, name),
                 (context, argument) -> PlaceholderResult.value(resolver.apply(context)));
     }
 
@@ -91,7 +94,7 @@ public final class MtrlockPlaceholders {
     // =====================================================================
 
     /**
-     * {@code %mtrlock_prefix%} 的取值逻辑：复用 {@link TeamPrefix} 的优先级
+     * {@code %mtrlock:prefix%} 的取值逻辑：复用 {@link TeamPrefix} 的优先级
      * （称呼 &gt; 团队 &gt; 空串）。
      *
      * @param playerUuid 玩家 UUID，可为 null
@@ -105,7 +108,7 @@ public final class MtrlockPlaceholders {
     }
 
     /**
-     * {@code %mtrlock_title%} 的取值逻辑：自定义称呼（不含方括号）。
+     * {@code %mtrlock:title%} 的取值逻辑：自定义称呼（不含方括号）。
      *
      * @param playerUuid 玩家 UUID，可为 null
      * @param titles     称呼来源，可为 null
@@ -120,7 +123,7 @@ public final class MtrlockPlaceholders {
     }
 
     /**
-     * {@code %mtrlock_team%} 的取值逻辑：团队名前两字（不含方括号）。
+     * {@code %mtrlock:team%} 的取值逻辑：团队名前两字（不含方括号）。
      *
      * @param playerUuid 玩家 UUID，可为 null
      * @param teams      团队来源，可为 null

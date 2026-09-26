@@ -32,7 +32,7 @@ public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 public void onInitialize() {
 // 1.2.0：显示前缀兼容层。
 // 装了 StyledChat / StyledPlayerList 时，三个显示 Mixin 会自行早退（不注入），
-// 改由 placeholder-api 暴露 %mtrlock_prefix% / %mtrlock_title% / %mtrlock_team%。
+// 改由 placeholder-api 暴露 %mtrlock:prefix% / %mtrlock:title% / %mtrlock:team%。
 if (DisplayModDetector.hasConflictingDisplayMod()) {
 MtrlockPlaceholders.register();
 LOGGER.info("[mtrlock] 检测到 StyledChat/StyledPlayerList，显示前缀改用 Placeholder API");
