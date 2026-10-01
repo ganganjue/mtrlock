@@ -62,7 +62,6 @@
   "gui.mtrlock.title.none": "无",
   "gui.mtrlock.title.input": "称号文本（≤16 字，支持中文）",
   "gui.mtrlock.title.color": "颜色",
-  "gui.mtrlock.title.colorDisabled": "颜色选择将在 1.2.4 开放",
   "gui.mtrlock.title.preview": "预览",
   "gui.mtrlock.title.save": "保存",
   "gui.mtrlock.title.clear": "清除称号",
@@ -111,5 +110,15 @@
   "gui.mtrlock.result.target_not_online": "找不到在线玩家",
   "gui.mtrlock.result.protocol_mismatch": "mtrlock 客户端与服务端版本不匹配，请把两端升级到同一版本",
   "gui.mtrlock.result.rate_limited": "操作过于频繁，请稍后再试",
-  "gui.mtrlock.result.client_required": "需要安装 mtrlock 客户端才能使用 GUI"
+  "gui.mtrlock.result.client_required": "需要安装 mtrlock 客户端才能使用 GUI",
+  "gui.mtrlock.title.hex": "HEX 颜色（#RRGGBB）",
+  "gui.mtrlock.title.applyHex": "应用HEX",
+  "gui.mtrlock.title.resetColor": "重置颜色",
+  "gui.mtrlock.title.colorInvalid": "颜色格式错误：支持 &a / red / #RRGGBB / &x&r&r&g&g&b&b",
+  "gui.mtrlock.title.colorNone": "无颜色",
+  "gui.mtrlock.result.color_set": "称号颜色已设置",
+  "gui.mtrlock.result.color_reset": "称号颜色已清除",
+  "gui.mtrlock.result.color_invalid": "颜色非法：支持 16 原版色（&a / red 等）、#RRGGBB、&x&r&r&g&g&b&b",
+  "gui.mtrlock.result.title_required": "该玩家还没有称号，请先设置称号文本再设置颜色",
+  "gui.mtrlock.result.unknown_action": "未知的 GUI 操作"
 }

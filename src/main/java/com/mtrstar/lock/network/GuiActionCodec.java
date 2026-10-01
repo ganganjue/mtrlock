@@ -61,12 +61,18 @@ public final class GuiActionCodec {
         writeNullableString(buf, action.type() == null ? null : action.type().name());
         writeNullableString(buf, action.targetUuid());
         writeNullableString(buf, action.title());
+        // 1.2.4：颜色（可空）
+        writeNullableString(buf, action.color());
     }
 
     public static TitleGuiAction readTitleGuiAction(PacketByteBuf buf) {
         final int version = buf.readVarInt();
         final TitleActionType type = parseTitleActionType(readNullableString(buf));
-        return new TitleGuiAction(version, type, readNullableString(buf), readNullableString(buf));
+        final String targetUuid = readNullableString(buf);
+        final String title = readNullableString(buf);
+        // 1.2.4：颜色（可空）
+        final String color = readNullableString(buf);
+        return new TitleGuiAction(version, type, targetUuid, title, color);
     }
 
     // =====================================================================
@@ -183,6 +189,8 @@ public final class GuiActionCodec {
         writeNullableString(buf, snapshot.targetUuid());
         writeNullableString(buf, snapshot.targetName());
         writeNullableString(buf, snapshot.currentTitle());
+        // 1.2.4：当前颜色（可空）
+        writeNullableString(buf, snapshot.currentColor());
         writePlayers(buf, snapshot.onlinePlayers());
     }
 
@@ -190,7 +198,9 @@ public final class GuiActionCodec {
         final String targetUuid = readNullableString(buf);
         final String targetName = readNullableString(buf);
         final String currentTitle = readNullableString(buf);
-        return new TitleGuiSnapshot(targetUuid, targetName, currentTitle, readPlayers(buf));
+        // 1.2.4：当前颜色（可空）
+        final String currentColor = readNullableString(buf);
+        return new TitleGuiSnapshot(targetUuid, targetName, currentTitle, currentColor, readPlayers(buf));
     }
 
     // =====================================================================

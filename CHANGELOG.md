@@ -3,6 +3,41 @@
 mtrlock（MTR 线路 / 车站 / 车厂权限模组）的版本变更记录。
 版本号以 `gradle.properties` 的 `version` 为准，构建产物为 `build/libs/mtrlock-<version>.jar`（已 remap）。
 
+## [1.2.4]
+
+在 1.2.3 的统一称号 GUI 内**激活颜色功能**；不改 GUI 结构、命令全部保留、数据语义不变。
+
+- **称号颜色（OP 3+）**：支持 16 原版色（`&a` / `§a` / `red` 等）、`#RRGGBB`（大小写不敏感）、
+  原版 hex（`&x&r&r&g&g&b&b`）；统一规范化为小写 `#rrggbb` 存储。
+  - **颜色只影响样式，不影响优先级**：自定义称呼（带色）> 团队名前两字（不带色）> 不显示；
+    团队前缀行为不变、不被称号颜色干扰。
+  - 聊天栏 / tab / 头顶用 Minecraft **Component** 渲染（不拼 legacy 字符串），
+    `%mtrlock:title_colored%` 与它们显示一致。
+  - **玩家不能自选**称呼 / 颜色，仅 OP 3+ 可修改。
+- **命令（全部保留 + 扩展；命令与 GUI 都只走 `TitleActions`）**：
+  - `/mtrlock title <玩家> <称呼>` —— 改文本，保留原颜色；
+  - `/mtrlock title <玩家> <称呼> <颜色>` —— 同时设置文本与颜色；
+  - `/mtrlock title color <玩家> <颜色>` —— 只改颜色（`reset` / `none` 清除）；
+  - `/mtrlock title clear <玩家>` —— 连同颜色一起清除。
+- **GUI**：`TitleGuiScreen` 颜色区启用（16 色网格 + HEX 输入 + 最近使用 + 重置颜色 + 实时预览），
+  去掉“1.2.4 开放”置灰标注；**不新增独立 Screen，页面结构不变**。
+- **Placeholder**：新增 `%mtrlock:title_colored%`，输出格式由
+  `config/mtrperm/display.json` 的 `placeholderFormat` 控制（`minimessage` 默认 / `legacy`）；
+  `%mtrlock:title%` 仍为纯文本、向后兼容；StyledChat / StyledPlayerList 占位符行为保持。
+- **数据格式**：`ownership.json` / `teams.json` / `shares.json` 持久化格式**零改动**；
+  `titles.json` 升级为 `{"uuid": {"text": "...", "color": "#rrggbb"}}`，
+  旧的 `{"uuid": "称呼"}` 仍可读取（`color = null`），坏文件保护 / `loadFailed` / fail-open 不变。
+- **协议**：`GuiProtocol.VERSION` 1 → 2（`TitleGuiAction` / `TitleGuiSnapshot` 新增颜色字段）。
+  **使用 GUI 需客户端与服务端同为 1.2.4**；1.2.3 客户端连 1.2.4 服务端（或反之）时 GUI 提示版本不匹配、
+  界面不打开，但**命令、聊天栏、tab、头顶名字、Placeholder 不受影响**。
+  `sync_ownership` 的称号颜色表是**可被旧客户端忽略的兼容尾段**（写端无条件写长度，
+  读端用 `isReadable()` 判断），1.2.3 客户端仍可正常进服。
+  `ResultCode` **只追加**（`COLOR_SET` / `COLOR_RESET` / `COLOR_INVALID` / `TITLE_REQUIRED`），
+  已有结果码名称与序号未改动，旧客户端仍能解析旧结果码。
+- **测试**：新增 `ColorParser` / `ColorFormatter` / `TitleData` 新旧格式往返 / `TitleActions` 颜色权限矩阵 /
+  Placeholder 颜色输出 / `DisplayConfig` / `ResultCode lang 全覆盖` 等测试（**232 → 328**，全绿）。
+- **Java target**：仍为 Java 17（`options.release = 17`，`sourceCompatibility` / `targetCompatibility = 17`）。
+
 ## [1.2.3]
 
 新增图形界面（GUI）：团队系统与称号系统都能在游戏内操作；**数据文件格式、命令行为、权限判定完全不变**。

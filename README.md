@@ -26,20 +26,27 @@
   - 客户端头顶名字基于 S2C 同步的团队快照本地计算，无团队时不误标。
   - 装了 StyledChat / StyledPlayerList 时改用 Placeholder API，见下方“与 StyledChat / StyledPlayerList 共存”。
 
-- **管理员自定义称呼（1.2.2 / 1.2.3 GUI）**：OP 3+ 可用 `/mtrlock title <玩家名> <称呼>` 给任意玩家设置称呼、
-  `/mtrlock title clear <玩家名>` 清除、`/mtrlock title` 查看自己；也能用 `/mtrlock gui title` 在图形界面里操作。
+- **管理员自定义称呼 + 颜色（1.2.2 引入 / 1.2.3 GUI / 1.2.4 颜色）**：仅 OP 3+ 可修改：
+  `/mtrlock title <玩家名> <称呼> [颜色]` 设置称呼（可带颜色）、
+  `/mtrlock title color <玩家名> <颜色>` 只改颜色（`reset` / `none` 清除）、
+  `/mtrlock title clear <玩家名>` 清除（连同颜色）、`/mtrlock title` 查看自己（含颜色）；
+  也能用 `/mtrlock gui title` 在图形界面里操作。**玩家不能自选称呼 / 颜色。**
   - 称呼最长 16 个 Unicode code point，不能为空、不能含控制字符；含空格需用双引号。
-  - 显示优先级：**有自定义称呼 → `[称呼]`（完整显示、不截断）> 有团队 → `[团队名前两字]` > 都没有 → 不显示前缀**，聊天栏 / tab / 头顶统一生效。
+  - **颜色（1.2.4）**：支持 16 原版色（`&a` / `§a` / `red` 等）、`#RRGGBB`（大小写不敏感）、
+    原版 hex（`&x&r&r&g&g&b&b`）；统一规范化为小写 `#rrggbb` 存储。
+  - **颜色只影响样式、不影响优先级**：**自定义称呼（带色）> 团队名前两字（不带色）> 不显示**；
+    聊天栏 / tab / 头顶 / `%mtrlock:title_colored%` 四处显示一致。
 
-- **图形界面（1.2.3）**：团队系统与称号系统可在游戏内操作，命令入口全部保留。
+- **图形界面（1.2.3 引入 / 1.2.4 颜色生效）**：团队系统与称号系统可在游戏内操作，命令入口全部保留。
   - 团队 GUI：`/mtrlock gui` 或 `/mtrlock gui team`（普通玩家可用）。
   - 称号 GUI：`/mtrlock gui title`（**仅 OP 3+**）。
-  - GUI 与命令走**同一段服务端逻辑**，权限判定、成功 / 失败结果完全一致；
+  - GUI 与命令走**同一段服务端逻辑**（`TeamActions` / `TitleActions`），权限判定、成功 / 失败结果完全一致；
     客户端只做展示与发包，服务端校验通过后才下发全量快照（客户端不做乐观更新）。
   - 未安装 mtrlock 客户端的玩家命令仍可用，GUI 入口会提示需要安装客户端。
-  - 称号 GUI 的颜色选择区（16 原版色 + HEX + 最近使用）本版**置灰**，标注“1.2.4 开放”；
-    本版实际生效的是纯文本称号的设置与清除。
-  - GUI 数据文件格式与 1.2.2 完全一致（`ownership.json` / `teams.json` / `shares.json` / `titles.json`）。
+  - **称号 GUI 颜色区 1.2.4 已生效**：16 原版色网格 + HEX 输入 + 最近使用 + 重置颜色，
+    并实时预览聊天栏 / tab / 头顶效果。
+  - GUI 数据文件格式：`ownership.json` / `teams.json` / `shares.json` 与 1.2.3 完全一致；
+    `titles.json` 1.2.4 升级为对象格式（旧字符串格式仍可读取，升级无感）。
 
 ## 环境要求
 
@@ -50,7 +57,7 @@
 | Fabric API | 0.92.12+1.20.1 |
 | MTR (Minecraft Transit Railway) | >= 4.0.0（`FABRIC-4.0.0+1.20.1`） |
 | Java | 17+ |
-| 本模组 | mtrlock 1.2.3 |
+| 本模组 | mtrlock 1.2.4 |
 
 > StyledChat（`styledchat`）/ StyledPlayerList（`styledplayerlist`）是**可选**模组。
 > 装了它们时 mtrlock 改用 Placeholder API 暴露前缀（详见“与 StyledChat / StyledPlayerList 共存”），
@@ -62,7 +69,7 @@
 
 1. 安装 Fabric Loader（1.20.1）。
 2. 把以下 jar 放进 `mods/`：
-   - `mtrlock-1.2.3.jar`
+   - `mtrlock-1.2.4.jar`
    - `fabric-api-0.92.12+1.20.1.jar`
    - `minecraft-transit-railway-FABRIC-4.0.0+1.20.1.jar`
 3. 启动一次服务端，会生成 `config/mtrperm/ownership.json`。
@@ -80,7 +87,7 @@
 | 入口 | 谁能用 | 说明 |
 |---|---|---|
 | `/mtrlock gui`、`/mtrlock gui team` | 普通玩家（OP 3+ 兜底不变） | 团队：我的团队 / 创建 / 申请 / 邀请 / 待处理 / 成员管理 / 分享管理 / 退出·解散（二次确认） |
-| `/mtrlock gui title` | **仅 OP 3+** | 称号：搜索玩家 / 当前称号 / 文本（≤16 字）/ 颜色区（本版置灰）/ 预览 / 保存·清除 |
+| `/mtrlock gui title` | **仅 OP 3+** | 称号：搜索玩家 / 当前称号 / 文本（≤16 字）/ 颜色区（**1.2.4 已生效**）/ 实时预览 / 保存·清除·重置颜色 |
 
 - GUI 操作在服务端做**协议版本校验 → 限流 → 权限 / 目标校验**，再调用与命令相同的
   `TeamActions` / `TitleActions`，因此 **GUI 与命令行为一致**。
@@ -114,15 +121,28 @@ mtrlock 启动时会检测服务器是否装了 **StyledChat**（mod id `styledc
 - mtrlock **不再注入**内置的显示名前缀 Mixin（`EntityDisplayNameMixin` /
   `PlayerListNameMixin` / `ClientDisplayNameMixin` 全部早退），避免和它们重复加前缀；
 - 改为用 [Placeholder API](https://modrinth.com/mod/placeholder-api)（mod id `placeholder-api`，
-  作者 Patbox，两者都已内置该库）注册下面三个占位符，由服主在它们的配置里自行引用：
+  作者 Patbox，两者都已内置该库）注册下面四个占位符，由服主在它们的配置里自行引用：
 
 | 占位符 | 含义 | 无数据时 |
 |---|---|---|
 | `%mtrlock:prefix%` | 完整前缀，如 `[红石]` / `[服主]` | 空串 |
 | `%mtrlock:title%` | 自定义称呼（不含方括号），如 `服主` | 空串 |
 | `%mtrlock:team%` | 团队名前两字（不含方括号），如 `红石` | 空串 |
+| `%mtrlock:title_colored%` | **1.2.4 新增**：带颜色的称呼（不含方括号） | 空串 |
 
-优先级与内置一致：**称呼 > 团队 > 不显示**。
+优先级与内置一致：**称呼 > 团队 > 不显示**。`%mtrlock:title%` 永远保持纯文本。
+
+`%mtrlock:title_colored%` 的输出格式由 `config/mtrperm/display.json` 控制：
+
+```json
+{ "placeholderFormat": "minimessage" }
+```
+
+- `minimessage`（默认）：`<#rrggbb>称号`，StyledChat / StyledPlayerList 原生支持；
+- `legacy`：`§x§r§r§g§g§b§b称号`。
+
+未装 StyledChat / StyledPlayerList 时，内置显示 Mixin 直接用 Minecraft Component 上色，
+不受该配置影响。
 
 ### StyledChat 参考配置
 
@@ -169,8 +189,13 @@ mtrlock 启动时会检测服务器是否装了 **StyledChat**（mod id `styledc
 - **S2C 协议在 1.2.2 新增 `titles` 字段**：服务端 1.2.2 与客户端 1.1.x（或反之）混用会不兼容，请两端同步升级到同一版本。
 
 - **GUI 与命令是同一套服务端逻辑**：GUI 只是入口，恶意客户端仍无法绕过服务端校验。
-- **GUI 为 1.2.3 新增协议**：使用 GUI 需要客户端与服务端同为 1.2.3；命令与显示前缀不受影响。
-- **称号颜色本版不生效**：颜色选择区（16 原版色 + HEX + 最近使用）置灰，计划 1.2.4 开放。
+- **GUI 协议版本在 1.2.4 升到 2**：使用 GUI 需要**客户端与服务端同为 1.2.4**；
+  1.2.3 客户端连 1.2.4 服务端（或反之）时，`/mtrlock gui` 会提示版本不匹配、界面不打开，
+  但**命令、聊天栏、tab、头顶名字、Placeholder 均不受影响**（`sync_ownership` 的颜色表是
+  可被旧客户端忽略的兼容尾段）。
+- **称号颜色只影响样式**：不改优先级、不影响团队前缀选择；颜色区在 1.2.4 已生效。
+- **`titles.json` 在 1.2.4 升级为 `{"uuid": {"text": "...", "color": "#rrggbb"}}`**：
+  旧的 `{"uuid": "称呼"}` 仍能正常读取（`color = null`），坏文件保护 / `loadFailed` 策略不变。
 
 > 完整验证步骤与排查清单见仓库根目录的 `VERIFY.md`。
 
@@ -184,7 +209,6 @@ mtrlock 启动时会检测服务器是否装了 **StyledChat**（mod id `styledc
 
 ## 反馈 / 问题
 
-- Issue / 反馈渠道：`<TODO: 在此填入 issue tracker 或反馈链接>`
 - 作者：ganganjue
 
 ## 许可证

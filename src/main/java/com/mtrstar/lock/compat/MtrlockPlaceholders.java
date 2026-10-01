@@ -3,6 +3,7 @@ package com.mtrstar.lock.compat;
 import com.mtrstar.lock.team.Team;
 import com.mtrstar.lock.team.TeamData;
 import com.mtrstar.lock.team.TeamPrefix;
+import com.mtrstar.lock.team.ColorFormatter;
 import com.mtrstar.lock.team.TitleData;
 import eu.pb4.placeholders.api.PlaceholderContext;
 import eu.pb4.placeholders.api.PlaceholderResult;
@@ -21,7 +22,9 @@ import java.util.function.Function;
  * <ul>
  *   <li>{@code %mtrlock:prefix%} —— 完整前缀（如 {@code [红石]} / {@code [服主]}），无则空串；</li>
  *   <li>{@code %mtrlock:title%}  —— 自定义称呼（不含方括号），无则空串；</li>
- *   <li>{@code %mtrlock:team%}   —— 团队名前两字（不含方括号），无则空串。</li>
+ *   <li>{@code %mtrlock:team%}   —— 团队名前两字（不含方括号），无则空串；</li>
+ *   <li>{@code %mtrlock:title_colored%} —— 1.2.4 新增：带颜色的称呼，
+ *       输出格式由 {@link DisplayConfig} 决定（MiniMessage / legacy）。</li>
  * </ul>
  *
  * <p>前缀优先级复用 {@link TeamPrefix#of(String, TeamPrefix.TitleLookup, TeamPrefix.TeamNameLookup)}
@@ -45,9 +48,21 @@ public final class MtrlockPlaceholders {
     /** 团队名前两字占位符名（用户写 {@code %mtrlock:team%}）。 */
     public static final String TEAM_PLACEHOLDER = "team";
 
-    /** 生产称呼来源：延迟到真正求值时才触碰 {@link TitleData} 单例。 */
-    private static final TeamPrefix.TitleLookup PRODUCTION_TITLES =
-            uuid -> TitleData.getInstance().getTitle(uuid);
+    /** 带颜色称呼占位符名（用户写 {@code %mtrlock:title_colored%}，1.2.4 新增）。 */
+    public static final String TITLE_COLORED_PLACEHOLDER = "title_colored";
+
+    /** 生产称呼来源：延迟到真正求值时才触碰 {@link TitleData} 单例（含颜色）。 */
+    private static final TeamPrefix.TitleLookup PRODUCTION_TITLES = new TeamPrefix.TitleLookup() {
+        @Override
+        public String titleOf(String playerUuid) {
+            return TitleData.getInstance().getTitle(playerUuid);
+        }
+
+        @Override
+        public String colorOf(String playerUuid) {
+            return TitleData.getInstance().getColor(playerUuid);
+        }
+    };
 
     /** 生产团队来源：延迟到真正求值时才触碰 {@link TeamData} 单例（最早加入的团队）。 */
     private static final TeamPrefix.TeamNameLookup PRODUCTION_TEAMS = uuid -> {
@@ -70,6 +85,10 @@ public final class MtrlockPlaceholders {
                 context -> titleValue(playerUuid(context), PRODUCTION_TITLES));
         register(TEAM_PLACEHOLDER,
                 context -> teamValue(playerUuid(context), PRODUCTION_TEAMS));
+        // 1.2.4：带颜色的称呼（格式可配置）
+        register(TITLE_COLORED_PLACEHOLDER,
+                context -> coloredTitleValue(playerUuid(context), PRODUCTION_TITLES,
+                        DisplayConfig.getInstance().getFormat()));
     }
 
     private static void register(String name, Function<PlaceholderContext, String> resolver) {
@@ -120,6 +139,33 @@ public final class MtrlockPlaceholders {
         }
         final String title = titles.titleOf(playerUuid);
         return title == null ? "" : title;
+    }
+
+    /**
+     * {@code %mtrlock:title_colored%} 的取值逻辑：带颜色的称呼（1.2.4）。
+     *
+     * <p>{@code %mtrlock:title%} 仍保持纯文本；本方法按 {@code format} 输出
+     * MiniMessage 或 legacy。无称呼 / 空称呼 → 空串（不带任何颜色标签）。</p>
+     *
+     * @param playerUuid 玩家 UUID，可为 null
+     * @param titles     称呼来源（含颜色），可为 null
+     * @param format     输出格式；null 按 {@link DisplayConfig#DEFAULT_FORMAT}
+     * @return 带颜色的称呼；无称呼时为空串
+     */
+    public static String coloredTitleValue(String playerUuid, TeamPrefix.TitleLookup titles,
+                                           DisplayConfig.Format format) {
+        if (playerUuid == null || playerUuid.isEmpty() || titles == null) {
+            return "";
+        }
+        final String title = titles.titleOf(playerUuid);
+        if (title == null || title.isEmpty()) {
+            return "";
+        }
+        final String color = titles.colorOf(playerUuid);
+        final DisplayConfig.Format actual = format == null ? DisplayConfig.DEFAULT_FORMAT : format;
+        return actual == DisplayConfig.Format.LEGACY
+                ? ColorFormatter.toLegacy(title, color)
+                : ColorFormatter.toMiniMessage(title, color);
     }
 
     /**

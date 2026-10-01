@@ -15,9 +15,9 @@ public final class GuiProtocol {
     /**
      * 当前 GUI 协议版本。
      *
-     * <p>1.2.3 首次引入，固定为 1；以后只要 GUI 包布局有变就 +1。</p>
+     * <p>1.2.3 首次引入（1）；1.2.4 因称号包新增颜色字段升为 2，两端必须一致。</p>
      */
-    public static final int VERSION = 1;
+    public static final int VERSION = 2;
 
     private GuiProtocol() {
     }

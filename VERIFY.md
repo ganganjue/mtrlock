@@ -471,3 +471,73 @@ $JP -p org/mtr/mod/packet/PacketRequestResponseBase.class \
 - 团队满：创建第 4 个团队失败；批准 / 接受邀请时对方已达上限失败；
 - 重复申请 / 重复邀请 / 重复分享：均提示失败且不产生重复数据；
 - 非队长：踢人 / 转让 / 解散在 GUI 中返回失败（OP 3+ 兜底成功）。
+
+---
+
+## 10. 1.2.4 称号颜色验证
+
+### 10.1 构建、测试与 Java target
+
+```bash
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-arm64
+export PATH="$JAVA_HOME/bin:$PATH"
+./gradlew test --console=plain     # 232 → 328，全绿
+./gradlew build --console=plain    # build/libs/mtrlock-1.2.4.jar
+
+# Java target 仍为 17
+grep -nE "release = 17|sourceCompatibility|targetCompatibility" build.gradle
+
+# 产物字节码版本应为 61（Java 17）
+unzip -p build/libs/mtrlock-1.2.4.jar com/mtrstar/lock/team/ColorParser.class > /tmp/ColorParser.class
+javap -verbose -cp /tmp ColorParser 2>/dev/null | grep -E "major version"
+```
+
+### 10.2 旧数据升级（必须无感）
+
+1. 取 1.2.3 的 `config/mtrperm/titles.json`（`{"uuid": "称呼"}` 字符串格式）放入 1.2.4 服务端配置目录；
+2. 启动服务端 → 称号正常显示、`color = null`（无颜色），日志无 `加载称呼数据失败`；
+3. OP 给其中一条设置颜色并关闭服务端 → 文件变为
+   `{"uuid": {"text": "...", "color": "#rrggbb"}}`，再启动读取正常。
+
+### 10.3 四处显示一致性（双客户端 + 服务端）
+
+| # | 操作 | 预期 |
+|---|---|---|
+| 1 | OP 执行 `/mtrlock title Alice "红石局长" red` | Alice 的聊天栏 / tab / 头顶均为 `[红石局长]` 且为 `#ff5555`；`/mtrlock title` 查看自己显示颜色 |
+| 2 | OP 执行 `/mtrlock title color Alice "&a"` | 颜色变为 `#55ff55`；文本不变 |
+| 3 | OP 执行 `/mtrlock title color Alice "#123456"` | 颜色变为 `#123456`（HEX 大小写不敏感） |
+| 4 | OP 执行 `/mtrlock title color Alice "&x&f&f&5&5&5&5"` | 颜色变为 `#ff5555` |
+| 5 | OP 执行 `/mtrlock title color Alice reset` | 颜色清除、文本保留 |
+| 6 | OP 执行 `/mtrlock title Alice "新称呼"`（不带颜色） | 文本更新，**保留**当前颜色 |
+| 7 | OP 执行 `/mtrlock title clear Alice` | 称呼与颜色一起消失 |
+| 8 | 给 Alice 一个团队前缀后再设带色称呼 | 显示称呼（带色）而非团队前缀；清除称呼后显示团队前缀（**不带色**） |
+| 9 | 普通玩家执行 `/mtrlock title Alice x red` / `title color` / `gui title` | 全部拒绝（NEED_ADMIN），数据不变 |
+
+### 10.4 Placeholder
+
+| # | 配置 | 预期 |
+|---|---|---|
+| 1 | StyledChat 用 `%mtrlock:title%` | 纯文本称呼，无颜色标签 |
+| 2 | StyledChat 用 `%mtrlock:title_colored%`（`display.json` 默认 minimessage） | `<#rrggbb>称呼`，StyledChat 渲染出颜色 |
+| 3 | `display.json` 改为 `{"placeholderFormat":"legacy"}` 后重启 | `§x§r§r§g§g§b§b称呼` |
+| 4 | 无称呼 | 两个占位符都为空串，不输出悬空颜色标签 |
+| 5 | `%mtrlock:prefix%` / `%mtrlock:team%` | 行为不变（纯文本、优先级不变） |
+
+### 10.5 GUI 颜色
+
+1. `/mtrlock gui title`（OP 3+）→ 颜色区不再是灰度块，点击 16 色任一块会高亮；
+2. HEX 输入框输入 `#ffaa00` → 点“应用HEX” → 高亮切换、预览变黄；
+3. 预览区三行（聊天栏 / tab / 头顶）随文本与颜色实时变化；
+4. “最近使用”出现刚用过的颜色，点击可复用；
+5. “重置颜色” → 颜色清空（服务端回全量快照后确认）；
+6. “保存” → 服务端校验通过后聊天栏 / tab / 头顶同步变色；
+7. 重新打开 GUI、切换目标玩家 → 当前称号与颜色从快照载入。
+
+### 10.6 版本与边界
+
+- **1.2.3 客户端连 1.2.4 服务端**：`/mtrlock gui` 提示协议版本不匹配、界面不打开；
+  但命令、聊天栏、tab、头顶名字、Placeholder **全部正常**（`sync_ownership` 颜色表是可忽略尾段）。
+- **1.2.4 客户端连 1.2.3 服务端**：同样 GUI 不匹配；显示按 1.2.3 行为（无颜色）。
+- **坏文件**：把 `titles.json` 改成非法 JSON → `loadFailed`，旧内存保留、`save()` 不覆盖坏文件；
+  修复或删除文件后重启恢复。
+- **未装客户端**：命令全部可用；`/mtrlock gui` 提示需要安装客户端。

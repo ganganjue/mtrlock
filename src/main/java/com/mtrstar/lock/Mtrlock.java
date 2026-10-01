@@ -1,5 +1,6 @@
 package com.mtrstar.lock;
 
+import com.mtrstar.lock.compat.DisplayConfig;
 import com.mtrstar.lock.compat.DisplayModDetector;
 import com.mtrstar.lock.compat.MtrlockPlaceholders;
 import com.mtrstar.lock.network.OwnershipSync;
@@ -72,6 +73,8 @@ ShareData.getInstance().load();
 ShareData.getInstance().cleanupOrphanTeams();
 // 1.2.0：自定义称呼加载（放在 TeamData / ShareData 之后）
 TitleData.getInstance().load();
+// 1.2.4：占位符显示配置（config/mtrperm/display.json）
+DisplayConfig.getInstance().load();
 // 功能 6：保存 server 引用，供 setCreator/removeCreator 后的 S2C 全量推送使用
 OwnershipSync.setServer(server);
 });
@@ -82,6 +85,8 @@ ShareData.getInstance().save();
 TeamData.getInstance().save();
 // 1.2.0：自定义称呼写回
 TitleData.getInstance().save();
+// 1.2.4：显示配置写回
+DisplayConfig.getInstance().save();
 });
 ServerLifecycleEvents.SERVER_STOPPED.register(server -> OwnershipSync.clearServer());
 
@@ -98,11 +103,13 @@ OwnershipData ownership = OwnershipData.getInstance();
 TeamData teams = TeamData.getInstance();
 ShareData shares = ShareData.getInstance();
 TitleData titles = TitleData.getInstance();
+DisplayConfig displayConfig = DisplayConfig.getInstance();
 Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 ownership.save();
 shares.save();
 teams.save();
 titles.save();
+displayConfig.save();
 }, "mtrlock-data-save"));
 }
 

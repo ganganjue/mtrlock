@@ -35,6 +35,16 @@ public final class TeamPrefix {
     public static final int PREFIX_CHARS = 2;
 
     /**
+     * 解析后的显示前缀（1.2.4）。
+     *
+     * @param text  前缀文本（不含方括号）：称呼原文，或团队名前两字
+     * @param color 称呼颜色 {@code #rrggbb}；团队前缀 / 无色为 null
+     * @param title 是否来自自定义称呼（团队前缀为 false）
+     */
+    public record Resolved(String text, String color, boolean title) {
+    }
+
+    /**
      * "按 uuid 查最早加入的团队名"的最小接口。
      *
      * <p>生产实现走 {@link TeamData#getTeamsOfPlayer(String)}；纯 JVM 测试注入内存桩。</p>
@@ -62,6 +72,15 @@ public final class TeamPrefix {
          * @return 该玩家的自定义称呼；没有返回 {@code null}
          */
         String titleOf(String playerUuid);
+
+        /**
+         * 该玩家称呼的颜色（{@code #rrggbb}）；没有 / 无色返回 {@code null}。
+         *
+         * <p>默认返回 null：1.2.3 的测试 lambda / 注入桩只实现 {@link #titleOf(String)} 也能编译。</p>
+         */
+        default String colorOf(String playerUuid) {
+            return null;
+        }
     }
 
     /** 生产团队 lookup：延迟到真正调用时才触碰 {@link TeamData} 单例。 */
@@ -78,7 +97,17 @@ public final class TeamPrefix {
     // 注意：必须写成 lambda，而不是 TitleData.getInstance()::getTitle ——
     // 绑定方法引用会在 TeamPrefix 类初始化时【立即】调用 getInstance()（触发 FabricLoader）；
     // lambda 则延迟到真正调用 of() 时才触碰单例。
-    private static final TitleLookup PRODUCTION_TITLES = uuid -> TitleData.getInstance().getTitle(uuid);
+    private static final TitleLookup PRODUCTION_TITLES = new TitleLookup() {
+        @Override
+        public String titleOf(String playerUuid) {
+            return TitleData.getInstance().getTitle(playerUuid);
+        }
+
+        @Override
+        public String colorOf(String playerUuid) {
+            return TitleData.getInstance().getColor(playerUuid);
+        }
+    };
 
     /** 当前团队 lookup（volatile：测试可替换；生产恒为 {@link #PRODUCTION_TEAMS}）。 */
     private static volatile TeamNameLookup teamLookup = PRODUCTION_TEAMS;
@@ -114,23 +143,39 @@ public final class TeamPrefix {
      * @return 同 {@link #of(String)}，永不返回 null
      */
     public static String of(String playerUuid, TitleLookup titles, TeamNameLookup teams) {
+        final Resolved resolved = resolve(playerUuid, titles, teams);
+        return resolved == null || resolved.text().isEmpty() ? NO_TEAM : "[" + resolved.text() + "]";
+    }
+
+    /**
+     * 与 {@link #of(String)} 同优先级，但额外返回颜色（1.2.4）。
+     *
+     * <p>优先级不变：<b>自定义称呼 &gt; 团队前缀 &gt; 无</b>，颜色只影响样式。
+     * 没有任何前缀时返回 {@code null}。</p>
+     */
+    public static Resolved resolve(String playerUuid) {
+        return resolve(playerUuid, titleLookup, teamLookup);
+    }
+
+    /** {@link #resolve(String)} 的注入版（测试 / 客户端复用）。 */
+    public static Resolved resolve(String playerUuid, TitleLookup titles, TeamNameLookup teams) {
         if (playerUuid == null || playerUuid.isEmpty()) {
-            return NO_TEAM;
+            return null;
         }
 
         // 1) 自定义称呼优先，完整显示、不截断
         final String title = titles == null ? null : titles.titleOf(playerUuid);
         if (title != null && !title.isEmpty()) {
-            return "[" + title + "]";
+            return new Resolved(title, titles.colorOf(playerUuid), true);
         }
 
-        // 2) 团队名前两字
+        // 2) 团队名前两字（不参与颜色）
         final String firstTeamName = teams == null ? null : teams.firstTeamName(playerUuid);
         if (firstTeamName == null || firstTeamName.isEmpty()) {
-            return NO_TEAM;
+            return null;
         }
         final String prefix = firstChars(firstTeamName, PREFIX_CHARS);
-        return prefix.isEmpty() ? NO_TEAM : "[" + prefix + "]";
+        return prefix.isEmpty() ? null : new Resolved(prefix, null, false);
     }
 
     /**

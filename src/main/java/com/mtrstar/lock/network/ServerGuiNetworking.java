@@ -179,9 +179,14 @@ public final class ServerGuiNetworking {
             return;
         }
 
-        final ActionResult result = action.type() == TitleActionType.SET
-                ? TitleActions.get().setTitle(actorUuid, true, target, action.title())
-                : TitleActions.get().clearTitle(actorUuid, true, target);
+        final ActionResult result;
+        if (action.type() == TitleActionType.SET) {
+            result = TitleActions.get().setTitle(actorUuid, true, target, action.title(), action.color());
+        } else if (action.type() == TitleActionType.RESET_COLOR) {
+            result = TitleActions.get().resetColor(actorUuid, true, target);
+        } else {
+            result = TitleActions.get().clearTitle(actorUuid, true, target);
+        }
         sendResult(player, result.ok(), result.code());
         sendTitleSync(player, target);
     }
@@ -306,6 +311,7 @@ public final class ServerGuiNetworking {
                 target,
                 nameOf(server, target),
                 TitleData.getInstance().getTitle(target),
+                TitleData.getInstance().getColor(target),
                 onlinePlayers(server));
     }
 

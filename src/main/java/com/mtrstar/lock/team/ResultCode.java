@@ -113,7 +113,20 @@ public enum ResultCode {
     /** 未安装 mtrlock 客户端，无法打开 GUI。 */
     CLIENT_REQUIRED,
     /** 未知的 GUI 操作。 */
-    UNKNOWN_ACTION;
+    UNKNOWN_ACTION,
+
+    // ------------------------------------------------------------------
+    // 1.2.4：称号颜色（只追加，不改动上面任何已有结果码的名称与序号）
+    // ------------------------------------------------------------------
+
+    /** 称号颜色已设置。 */
+    COLOR_SET,
+    /** 称号颜色已清除。 */
+    COLOR_RESET,
+    /** 颜色输入非法。 */
+    COLOR_INVALID,
+    /** 目标玩家还没有称号（不能只设颜色）。 */
+    TITLE_REQUIRED;
 
     /** 该结果码是否表示操作成功。 */
     public boolean isSuccess() {
@@ -134,6 +147,8 @@ public enum ResultCode {
             case SYNCED:
             case TITLE_SET:
             case TITLE_CLEARED:
+            case COLOR_SET:
+            case COLOR_RESET:
                 return true;
             default:
                 return false;

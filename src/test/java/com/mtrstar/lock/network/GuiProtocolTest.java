@@ -11,9 +11,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class GuiProtocolTest {
 
     @Test
-    @DisplayName("当前版本与自身兼容")
+    @DisplayName("当前版本（1.2.4 = 2）与自身兼容")
     void currentCompatible() {
-        assertEquals(1, GuiProtocol.VERSION);
+        assertEquals(2, GuiProtocol.VERSION);
         assertTrue(GuiProtocol.isCompatible(GuiProtocol.VERSION));
     }
 

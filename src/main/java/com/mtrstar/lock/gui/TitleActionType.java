@@ -8,7 +8,9 @@ public enum TitleActionType {
     /** 清除称号（用 {@code targetUuid}）。 */
     CLEAR,
     /** 仅请求一次全量同步。 */
-    REQUEST_SYNC;
+    REQUEST_SYNC,
+    /** 1.2.4：清除颜色、保留称号文本。 */
+    RESET_COLOR;
 
     /** 是否只读（不修改数据）。 */
     public boolean isReadOnly() {

@@ -1,6 +1,8 @@
 package com.mtrstar.lock.client.mixin;
 
 import com.mtrstar.lock.client.ClientTeamPrefix;
+import com.mtrstar.lock.team.PrefixDisplay;
+import com.mtrstar.lock.team.TeamPrefix;
 import com.mtrstar.lock.compat.DisplayModDetector;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.entity.player.PlayerEntity;
@@ -42,11 +44,12 @@ public abstract class ClientDisplayNameMixin {
         if (original == null) {
             return;
         }
-        final String prefix = ClientTeamPrefix.of(player.getUuidAsString());
-        if (prefix.isEmpty()) {
+        // 1.2.4：客户端用 S2C 同步来的称号颜色上色（与服务端 Component 逻辑共用 PrefixDisplay）。
+        final Text prefix = PrefixDisplay.of(ClientTeamPrefix.resolve(player.getUuidAsString()));
+        if (prefix.getString().isEmpty()) {
             // 无团队无称呼：不加前缀，也不加多余空格。
             return;
         }
-        cir.setReturnValue(Text.literal(prefix + " ").append(original));
+        cir.setReturnValue(prefix.copy().append(" ").append(original));
     }
 }

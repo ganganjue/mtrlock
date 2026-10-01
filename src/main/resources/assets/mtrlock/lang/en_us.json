@@ -62,7 +62,6 @@
   "gui.mtrlock.title.none": "None",
   "gui.mtrlock.title.input": "Title text (<=16 code points)",
   "gui.mtrlock.title.color": "Color",
-  "gui.mtrlock.title.colorDisabled": "Color selection arrives in 1.2.4",
   "gui.mtrlock.title.preview": "Preview",
   "gui.mtrlock.title.save": "Save",
   "gui.mtrlock.title.clear": "Clear title",
@@ -111,5 +110,15 @@
   "gui.mtrlock.result.target_not_online": "Player is not online",
   "gui.mtrlock.result.protocol_mismatch": "mtrlock client/server version mismatch. Please update both sides",
   "gui.mtrlock.result.rate_limited": "Too many requests, please slow down",
-  "gui.mtrlock.result.client_required": "The mtrlock client mod is required to use the GUI"
+  "gui.mtrlock.result.client_required": "The mtrlock client mod is required to use the GUI",
+  "gui.mtrlock.title.hex": "HEX color (#RRGGBB)",
+  "gui.mtrlock.title.applyHex": "Apply HEX",
+  "gui.mtrlock.title.resetColor": "Reset color",
+  "gui.mtrlock.title.colorInvalid": "Invalid color. Use &a / red / #RRGGBB / &x&r&r&g&g&b&b",
+  "gui.mtrlock.title.colorNone": "No color",
+  "gui.mtrlock.result.color_set": "Title color set",
+  "gui.mtrlock.result.color_reset": "Title color cleared",
+  "gui.mtrlock.result.color_invalid": "Invalid color: use a vanilla code (&a / red), #RRGGBB, or &x&r&r&g&g&b&b",
+  "gui.mtrlock.result.title_required": "This player has no title yet; set the title text first",
+  "gui.mtrlock.result.unknown_action": "Unknown GUI action"
 }

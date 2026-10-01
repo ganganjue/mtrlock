@@ -1,6 +1,7 @@
 package com.mtrstar.lock.mixin;
 
 import com.mtrstar.lock.compat.DisplayModDetector;
+import com.mtrstar.lock.team.PrefixDisplay;
 import com.mtrstar.lock.team.TeamPrefix;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
@@ -41,12 +42,13 @@ public abstract class PlayerListNameMixin {
             cir.setReturnValue(self.getName());
             return;
         }
-        final String prefix = TeamPrefix.of(self.getUuidAsString());
-        if (prefix.isEmpty()) {
+        // 1.2.4：称号带颜色（team prefix 不带色）；Component 渲染。
+        final Text prefix = PrefixDisplay.of(TeamPrefix.resolve(self.getUuidAsString()));
+        if (prefix.getString().isEmpty()) {
             // 无团队无称呼：原版返回 null 会让 tab 空白，回填名字。
             cir.setReturnValue(self.getName());
             return;
         }
-        cir.setReturnValue(Text.literal(prefix + " " + self.getName().getString()));
+        cir.setReturnValue(prefix.copy().append(" ").append(self.getName()));
     }
 }

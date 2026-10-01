@@ -101,6 +101,14 @@ public final class ResultMessages {
                 return "称呼非法：不能为空、不超过 " + TitleData.MAX_TITLE_LENGTH + " 个字符、且不能含控制字符";
             case NO_TITLE:
                 return "该玩家当前没有自定义称呼";
+            case COLOR_SET:
+                return "称号颜色已设置";
+            case COLOR_RESET:
+                return "称号颜色已清除";
+            case COLOR_INVALID:
+                return "颜色非法：支持 16 原版色（&a / red 等）、#RRGGBB、&x&r&r&g&g&b&b";
+            case TITLE_REQUIRED:
+                return "该玩家还没有称号，请先设置称号文本再设置颜色";
 
             case NEED_ADMIN:
                 return "需要 OP 权限等级 3 才能使用该命令";

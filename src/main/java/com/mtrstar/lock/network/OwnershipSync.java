@@ -17,6 +17,7 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 
 public final class OwnershipSync {
 
@@ -59,8 +60,10 @@ public final class OwnershipSync {
 
         final Map<String, Set<String>> shares = ShareData.getInstance().getAllShares();
         final Map<String, String> titles = new HashMap<>(TitleData.getInstance().getAll());
+        // 1.2.4：称号颜色表（uuid → #rrggbb）。TreeMap 排序，保证写入顺序稳定。
+        final Map<String, String> titleColors = new TreeMap<>(TitleData.getInstance().getAllColors());
 
-        return new Snapshot(ownership, teams, shares, titles, false); // operator 占位；实际值在 send() 逐玩家写入
+        return new Snapshot(ownership, teams, shares, titles, titleColors, false); // operator 占位；实际值在 send() 逐玩家写入
     }
 
     private static void send(ServerPlayerEntity player, Snapshot snap) {
@@ -93,6 +96,18 @@ public final class OwnershipSync {
         // 1.2.0：自定义称呼（playerUuid → title）。加字段后 S2C 与 1.1.x 不兼容，两端需同步升级。
         buf.writeVarInt(s.titles().size());
         for (Map.Entry<String, String> e : s.titles().entrySet()) {
+            buf.writeString(e.getKey());
+            buf.writeString(e.getValue());
+        }
+
+        // 1.2.4：可选尾段「称号颜色表」。写端【无条件】写 size（含 0）；
+        // 读端用 isReadable() 判断有没有这段，因此：
+        //   - 1.2.3 客户端收到 1.2.4 服务端的包：多出的尾段被忽略；
+        //   - 1.2.4 客户端收到 1.2.3 服务端的包：isReadable()=false，按无色处理。
+        // 颜色表已按 uuid 排序，映射不会错位。
+        final Map<String, String> titleColors = s.titleColors();
+        buf.writeVarInt(titleColors.size());
+        for (Map.Entry<String, String> e : titleColors.entrySet()) {
             buf.writeString(e.getKey());
             buf.writeString(e.getValue());
         }
@@ -132,7 +147,14 @@ public final class OwnershipSync {
         final Map<String, String> titles = new HashMap<>(Math.max(4, ttn));
         for (int i = 0; i < ttn; i++) titles.put(buf.readString(), buf.readString());
 
-        return new Snapshot(ownership, teams, shares, titles, operator);
+        // 1.2.4：可选尾段「称号颜色表」；旧服务端没有这段时 isReadable()=false。
+        final Map<String, String> titleColors = new HashMap<>();
+        if (buf.isReadable()) {
+            final int ccn = buf.readVarInt();
+            for (int i = 0; i < ccn; i++) titleColors.put(buf.readString(), buf.readString());
+        }
+
+        return new Snapshot(ownership, teams, shares, titles, titleColors, operator);
     }
 
     public record TeamSnapshot(String name, String ownerUuid, Set<String> members) {
@@ -142,6 +164,7 @@ public final class OwnershipSync {
                            Map<String, TeamSnapshot> teams,
                            Map<String, Set<String>> shares,
                            Map<String, String> titles,
+                           Map<String, String> titleColors,
                            boolean operator) {
     }
 }

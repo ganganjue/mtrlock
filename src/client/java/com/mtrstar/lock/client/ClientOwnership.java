@@ -38,6 +38,9 @@ public final class ClientOwnership {
     /** playerUuid → 自定义称呼（1.2.0 S2C 填充；优先级高于团队前缀）。 */
     private static final Map<String, String> TITLES = new ConcurrentHashMap<>();
 
+    /** playerUuid → 称号颜色（1.2.4 S2C 填充；{@code #rrggbb}，无颜色则没有条目）。 */
+    private static final Map<String, String> TITLE_COLORS = new ConcurrentHashMap<>();
+
     private static volatile boolean operator;
 
     /** 是否已收到分享 / 团队快照。阶段 3 恒为 false → {@link #canEditOrUnknown} 对非创建者 fail-open。 */
@@ -187,6 +190,24 @@ public final class ClientOwnership {
         return playerUuid == null ? null : TITLES.get(playerUuid);
     }
 
+    /** 某玩家的称号颜色（{@code #rrggbb}）；没有 / 无色 / 非法参数返回 null。 */
+    public static String getTitleColor(String playerUuid) {
+        return playerUuid == null ? null : TITLE_COLORS.get(playerUuid);
+    }
+
+    /** 1.2.4 S2C 同步入口：整体替换 playerUuid → 称号颜色。 */
+    public static void setTitleColors(Map<String, String> titleColors) {
+        TITLE_COLORS.clear();
+        if (titleColors == null) {
+            return;
+        }
+        for (Map.Entry<String, String> entry : titleColors.entrySet()) {
+            if (entry.getKey() != null && entry.getValue() != null) {
+                TITLE_COLORS.put(entry.getKey(), entry.getValue());
+            }
+        }
+    }
+
     /** 1.2.0 S2C 同步入口：整体替换 playerUuid → 自定义称呼。 */
     public static void setTitles(Map<String, String> titles) {
         TITLES.clear();
@@ -220,6 +241,7 @@ public final class ClientOwnership {
         TEAM_MEMBERS.clear();
         TEAM_NAMES.clear();
         TITLES.clear();
+        TITLE_COLORS.clear();
         operator = false;
         shareInfoSynced = false;
     }

@@ -1,6 +1,7 @@
 package com.mtrstar.lock.mixin;
 
 import com.mtrstar.lock.compat.DisplayModDetector;
+import com.mtrstar.lock.team.PrefixDisplay;
 import com.mtrstar.lock.team.TeamPrefix;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -51,11 +52,12 @@ public abstract class EntityDisplayNameMixin {
         if (original == null) {
             return;
         }
-        final String prefix = TeamPrefix.of(player.getUuidAsString());
-        if (prefix.isEmpty()) {
+        // 1.2.4：称号带颜色，用 Component 渲染（不拼 legacy 字符串）；团队前缀不受影响。
+        final Text prefix = PrefixDisplay.of(TeamPrefix.resolve(player.getUuidAsString()));
+        if (prefix.getString().isEmpty()) {
             // 无团队无称呼：不加前缀，也不加多余空格。
             return;
         }
-        cir.setReturnValue(Text.literal(prefix + " ").append(original));
+        cir.setReturnValue(prefix.copy().append(" ").append(original));
     }
 }

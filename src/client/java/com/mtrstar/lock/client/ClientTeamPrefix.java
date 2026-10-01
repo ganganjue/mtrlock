@@ -46,27 +46,38 @@ public final class ClientTeamPrefix {
      * @return 形如 {@code [红石局长]}（称呼，完整）/ {@code [红石]}（团队，截两字）/ {@link #NO_TEAM}
      */
     public static String of(String playerUuid) {
+        final TeamPrefix.Resolved resolved = resolve(playerUuid);
+        return resolved == null || resolved.text().isEmpty() ? NO_TEAM : "[" + resolved.text() + "]";
+    }
+
+    /**
+     * 与服务端 {@link TeamPrefix#resolve(String)} 同优先级，额外返回称号颜色（1.2.4）。
+     *
+     * <p>颜色来自 S2C 同步的 {@link ClientOwnership#getTitleColor(String)}；
+     * 团队前缀不带颜色。没有任何前缀时返回 null，永不抛异常。</p>
+     */
+    public static TeamPrefix.Resolved resolve(String playerUuid) {
         if (playerUuid == null || playerUuid.isEmpty()) {
-            return NO_TEAM;
+            return null;
         }
 
-        // 1) 自定义称呼优先，完整显示、不截断
+        // 1) 自定义称呼优先，完整显示、不截断；颜色随称呼
         final String title = ClientOwnership.getTitle(playerUuid);
         if (title != null && !title.isEmpty()) {
-            return "[" + title + "]";
+            return new TeamPrefix.Resolved(title, ClientOwnership.getTitleColor(playerUuid), true);
         }
 
-        // 2) 团队名前两字
+        // 2) 团队名前两字（不参与颜色）
         final String teamId = earliestTeamId(playerUuid);
         if (teamId == null) {
-            return NO_TEAM;
+            return null;
         }
         final String name = ClientOwnership.getTeamName(teamId);
         if (name == null || name.isEmpty()) {
-            return NO_TEAM;
+            return null;
         }
         final String prefix = firstChars(name, PREFIX_CHARS);
-        return prefix.isEmpty() ? NO_TEAM : "[" + prefix + "]";
+        return prefix.isEmpty() ? null : new TeamPrefix.Resolved(prefix, null, false);
     }
 
     /**

@@ -53,6 +53,8 @@ public class MtrlockClient implements ClientModInitializer {
                         ClientOwnership.setShareSnapshot(snapshot.shares(), teamMembers);
                         ClientOwnership.setTeamNames(teamNames);
                         ClientOwnership.setTitles(snapshot.titles());
+                        // 1.2.4：可选称号颜色尾段（旧服务端没有 → 空表，等价于无色）
+                        ClientOwnership.setTitleColors(snapshot.titleColors());
                     });
                 });
 
