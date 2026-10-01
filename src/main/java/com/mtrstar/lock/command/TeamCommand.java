@@ -4,8 +4,12 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mtrstar.lock.perm.OwnershipData;
+import com.mtrstar.lock.team.ActionResult;
+import com.mtrstar.lock.team.ResultCode;
+import com.mtrstar.lock.team.ResultMessages;
 import com.mtrstar.lock.team.ShareData;
 import com.mtrstar.lock.team.Team;
+import com.mtrstar.lock.team.TeamActions;
 import com.mtrstar.lock.team.TeamData;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
@@ -17,7 +21,12 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
-/** /team 下的全部子命令。 */
+/**
+ * /team 下的全部子命令。
+ *
+ * <p>1.2.3：所有会改动数据的子命令都改为委托 {@link TeamActions}（与 GUI 共用同一段服务端
+ * 逻辑）；命令的成功 / 失败文案与 1.2.2 保持逐字一致。</p>
+ */
 public final class TeamCommand {
 
     private TeamCommand() {
@@ -82,16 +91,23 @@ public final class TeamCommand {
         );
     }
 
+    /** 1.2.3：命令层与 GUI 共用的团队 / 分享行为层。 */
+    private static TeamActions actions() {
+        return TeamActions.get();
+    }
+
     private static int create(CommandContext<ServerCommandSource> ctx) {
         final ServerPlayerEntity player = requirePlayer(ctx);
         if (player == null) return 0;
         final String name = StringArgumentType.getString(ctx, "name");
-        final Team team = TeamData.getInstance().createTeam(name, uuid(player));
-        if (team == null) {
-            err(ctx, "创建失败：名字非法（空 / 超 32 字 / 含控制字符）、名字重复，或你已加入 " + TeamData.MAX_TEAMS_PER_PLAYER + " 个团队");
+        final ActionResult result = actions().createTeam(uuid(player), name);
+        if (!result.ok()) {
+            err(ctx, ResultMessages.zh(result.code()));
             return 0;
         }
-        ok(ctx, "已创建团队 [" + team.getName() + "]");
+        // 成功文案沿用“规范化后的团队名”（去首尾空白）
+        final Team created = TeamData.getInstance().getTeamByName(name);
+        ok(ctx, "已创建团队 [" + (created != null ? created.getName() : name) + "]");
         return 1;
     }
 
@@ -140,14 +156,12 @@ public final class TeamCommand {
     private static int apply(CommandContext<ServerCommandSource> ctx) {
         final ServerPlayerEntity player = requirePlayer(ctx);
         if (player == null) return 0;
+        final Team team = requireTeamByName(ctx);
+        if (team == null) return 0;
         final String name = StringArgumentType.getString(ctx, "name");
-        final Team team = TeamData.getInstance().getTeamByName(name);
-        if (team == null) {
-            err(ctx, "团队不存在：" + name);
-            return 0;
-        }
-        if (!TeamData.getInstance().applyToJoin(team.getTeamId(), uuid(player))) {
-            err(ctx, "申请失败：你已是成员，或已经申请过");
+        final ActionResult result = actions().applyToJoin(uuid(player), name);
+        if (!result.ok()) {
+            err(ctx, ResultMessages.zh(result.code()));
             return 0;
         }
         ok(ctx, "已向 [" + team.getName() + "] 提交申请，等待创建者批准");
@@ -161,13 +175,15 @@ public final class TeamCommand {
         if (player == null) return 0;
         final Team team = requireTeamByName(ctx);
         if (team == null) return 0;
-        final String targetUuid = resolveOnlineUuid(ctx, StringArgumentType.getString(ctx, "player"));
+        final String targetName = StringArgumentType.getString(ctx, "player");
+        final String targetUuid = resolveOnlineUuid(ctx, targetName);
         if (targetUuid == null) {
-            err(ctx, "找不到在线玩家：" + StringArgumentType.getString(ctx, "player"));
+            err(ctx, "找不到在线玩家：" + targetName);
             return 0;
         }
-        if (!TeamData.getInstance().approveApplication(team.getTeamId(), uuid(player), targetUuid)) {
-            err(ctx, "批准失败：你不是创建者，或对方没有待批申请，或对方已达 " + TeamData.MAX_TEAMS_PER_PLAYER + " 个团队上限");
+        final ActionResult result = actions().approveApplication(uuid(player), team.getTeamId(), targetUuid);
+        if (!result.ok()) {
+            err(ctx, ResultMessages.zh(result.code()));
             return 0;
         }
         ok(ctx, "已批准加入 [" + team.getName() + "]");
@@ -185,8 +201,9 @@ public final class TeamCommand {
             err(ctx, "找不到在线玩家");
             return 0;
         }
-        if (!TeamData.getInstance().denyApplication(team.getTeamId(), uuid(player), targetUuid)) {
-            err(ctx, "拒绝失败：你不是创建者，或对方没有待批申请");
+        final ActionResult result = actions().denyApplication(uuid(player), team.getTeamId(), targetUuid);
+        if (!result.ok()) {
+            err(ctx, ResultMessages.zh(result.code()));
             return 0;
         }
         ok(ctx, "已拒绝该申请");
@@ -204,8 +221,9 @@ public final class TeamCommand {
             err(ctx, "找不到在线玩家");
             return 0;
         }
-        if (!TeamData.getInstance().invite(team.getTeamId(), uuid(player), targetUuid)) {
-            err(ctx, "邀请失败：你不是创建者，或对方已是成员 / 已被邀请");
+        final ActionResult result = actions().invite(uuid(player), team.getTeamId(), targetUuid);
+        if (!result.ok()) {
+            err(ctx, ResultMessages.zh(result.code()));
             return 0;
         }
         ok(ctx, "已邀请加入 [" + team.getName() + "]");
@@ -218,8 +236,9 @@ public final class TeamCommand {
         if (player == null) return 0;
         final Team team = requireTeamByName(ctx);
         if (team == null) return 0;
-        if (!TeamData.getInstance().acceptInvitation(team.getTeamId(), uuid(player))) {
-            err(ctx, "加入失败：你没有待接受邀请，或已达 " + TeamData.MAX_TEAMS_PER_PLAYER + " 个团队上限");
+        final ActionResult result = actions().acceptInvitation(uuid(player), team.getTeamId());
+        if (!result.ok()) {
+            err(ctx, ResultMessages.zh(result.code()));
             return 0;
         }
         ok(ctx, "已加入团队 [" + team.getName() + "]");
@@ -231,8 +250,9 @@ public final class TeamCommand {
         if (player == null) return 0;
         final Team team = requireTeamByName(ctx);
         if (team == null) return 0;
-        if (!TeamData.getInstance().declineInvitation(team.getTeamId(), uuid(player))) {
-            err(ctx, "拒绝失败：你没有待接受邀请");
+        final ActionResult result = actions().declineInvitation(uuid(player), team.getTeamId());
+        if (!result.ok()) {
+            err(ctx, ResultMessages.zh(result.code()));
             return 0;
         }
         ok(ctx, "已拒绝邀请");
@@ -244,12 +264,9 @@ public final class TeamCommand {
         if (player == null) return 0;
         final Team team = requireTeamByName(ctx);
         if (team == null) return 0;
-        if (team.isOwner(uuid(player))) {
-            err(ctx, "创建者不能直接退出。请先 /team transfer 转让，或 /team disband 解散");
-            return 0;
-        }
-        if (!TeamData.getInstance().leaveTeam(team.getTeamId(), uuid(player))) {
-            err(ctx, "退出失败：你不是该团队成员");
+        final ActionResult result = actions().leave(uuid(player), team.getTeamId());
+        if (!result.ok()) {
+            err(ctx, ResultMessages.zh(result.code()));
             return 0;
         }
         ok(ctx, "已退出团队 [" + team.getName() + "]");
@@ -266,8 +283,9 @@ public final class TeamCommand {
             err(ctx, "找不到在线玩家");
             return 0;
         }
-        if (!TeamData.getInstance().kickMember(team.getTeamId(), uuid(player), isAdmin(player), targetUuid)) {
-            err(ctx, "踢人失败：你没有权限（需为创建者或 OP 3+），或不能踢创建者 / 自己");
+        final ActionResult result = actions().kick(uuid(player), isAdmin(player), team.getTeamId(), targetUuid);
+        if (!result.ok()) {
+            err(ctx, ResultMessages.zh(result.code()));
             return 0;
         }
         ok(ctx, "已踢出成员");
@@ -285,8 +303,9 @@ public final class TeamCommand {
             err(ctx, "找不到在线玩家");
             return 0;
         }
-        if (!TeamData.getInstance().transferOwnership(team.getTeamId(), uuid(player), isAdmin(player), targetUuid)) {
-            err(ctx, "转让失败：你没有权限（需为创建者或 OP 3+），或目标不是成员");
+        final ActionResult result = actions().transfer(uuid(player), isAdmin(player), team.getTeamId(), targetUuid);
+        if (!result.ok()) {
+            err(ctx, ResultMessages.zh(result.code()));
             return 0;
         }
         ok(ctx, "已把 [" + team.getName() + "] 的创建者转让");
@@ -299,13 +318,11 @@ public final class TeamCommand {
         if (player == null) return 0;
         final Team team = requireTeamByName(ctx);
         if (team == null) return 0;
-        if (!team.isOwner(uuid(player)) && !isAdmin(player)) {
-            err(ctx, "解散失败：需要团队创建者或 OP 3+");
-            return 0;
-        }
+        // 必须在删除前抓成员快照（与 1.2.2 一致）
         final Set<String> members = team.getMembers();
-        if (!TeamData.getInstance().deleteTeam(team.getTeamId())) {
-            err(ctx, "解散失败：团队不存在");
+        final ActionResult result = actions().disband(uuid(player), isAdmin(player), team.getTeamId());
+        if (!result.ok()) {
+            err(ctx, ResultMessages.zh(result.code()));
             return 0;
         }
         ok(ctx, "已解散团队 [" + team.getName() + "]");
@@ -322,21 +339,9 @@ public final class TeamCommand {
         final Team team = requireTeamByName(ctx);
         if (team == null) return 0;
 
-        if (!CommandUtil.isValidObjectId(objectId)) {
-            err(ctx, "对象 ID 格式错误。正确格式如 route:0B0829457F350DE9。用 /mtrlock my 查看你的对象");
-            return 0;
-        }
-        final String creator = OwnershipData.getInstance().getCreator(objectId);
-        if (creator == null) {
-            err(ctx, "该对象没有归属记录（可能是模组安装前创建的）");
-            return 0;
-        }
-        if (!creator.equals(uuid(player))) {
-            err(ctx, "只有对象创建者可以分享");
-            return 0;
-        }
-        if (!ShareData.getInstance().share(objectId, team.getTeamId())) {
-            err(ctx, "分享失败：该对象已经分享给这个团队");
+        final ActionResult result = actions().share(uuid(player), objectId, team.getTeamId());
+        if (!result.ok()) {
+            err(ctx, ResultMessages.zh(result.code()));
             return 0;
         }
         ok(ctx, "已把 " + objectId + " 分享给 [" + team.getName() + "]");
@@ -350,17 +355,18 @@ public final class TeamCommand {
         final Team team = requireTeamByName(ctx);
         if (team == null) return 0;
 
+        // 取消分享的 ID 错误文案与分享不同，这里保留 1.2.2 的短提示
         if (!CommandUtil.isValidObjectId(objectId)) {
             err(ctx, "对象 ID 格式错误");
             return 0;
         }
-        final String creator = OwnershipData.getInstance().getCreator(objectId);
-        if (creator == null || !creator.equals(uuid(player))) {
-            err(ctx, "只有对象创建者可以取消分享");
-            return 0;
-        }
-        if (!ShareData.getInstance().unshare(objectId, team.getTeamId())) {
-            err(ctx, "取消失败：该对象没有分享给这个团队");
+        final ActionResult result = actions().unshare(uuid(player), objectId, team.getTeamId());
+        if (!result.ok()) {
+            if (result.code() == ResultCode.NOT_OBJECT_CREATOR) {
+                err(ctx, "只有对象创建者可以取消分享");
+            } else {
+                err(ctx, ResultMessages.zh(result.code()));
+            }
             return 0;
         }
         ok(ctx, "已取消 " + objectId + " 对 [" + team.getName() + "] 的分享");

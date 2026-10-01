@@ -380,3 +380,94 @@ gamemode=creative
 > 排查：聊天栏没前缀 → 检查 `EntityDisplayNameMixin` 是否在 `mtrlock.mixins.json` 注册、
 > 注入是否成功（`defaultRequire=1` 失败会直接崩）；tab 没前缀 → 检查 `PlayerListNameMixin`
 > 是否注册（它覆盖原版恒为 `null` 的 `getPlayerListName()`）。
+
+---
+
+## 9. 1.2.3 GUI 验证
+
+### 9.1 构建与测试
+
+```bash
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-arm64
+export PATH="$JAVA_HOME/bin:$PATH"
+bash gradlew test --console=plain     # 单元测试（184 → 215+）
+bash gradlew build --console=plain    # remap 后的发行 jar: build/libs/mtrlock-1.2.3.jar
+```
+
+验收点：
+- 单元测试全绿，数量 ≥ 215；
+- 持久化格式未变：`ownership.json` / `teams.json` / `shares.json` / `titles.json` 与 1.2.2 可互读；
+- `mtrlock.mixins.json` / `mtrlock.client.mixins.json` 未新增条目（本版 GUI 不需要新 Mixin）。
+
+### 9.2 javap：现有 Mixin 注入点回归
+
+1.2.3 **没有新增 Mixin 注入点**（GUI 走 Fabric 自定义通道 + 客户端 `Screen`），
+因此这里用 javap 复核现有注入目标方法签名仍然存在、且与 `@Inject(method = "...")` 里写的描述符一致。
+
+```bash
+JP="$JAVA_HOME/bin/javap"
+
+# (a) 服务端显示前缀：PlayerEntity.getDisplayName / ServerPlayerEntity.getPlayerListName
+$JP -p classes/net/minecraft/entity/player/PlayerEntity.class | grep -i getDisplayName
+$JP -p classes/net/minecraft/server/network/ServerPlayerEntity.class | grep -i getPlayerListName
+
+# (b) MTR 目标：从 loom 缓存的 remapped jar 里取
+MTR=$(find .gradle/loom-cache/remapped_mods -name 'minecraft-transit-railway-*.jar' | head -1)
+mkdir -p /tmp/mtrlock-javap && cd /tmp/mtrlock-javap
+jar xf "$OLDPWD/$MTR" org/mtr/core/data/Data.class \
+  'org/mtr/core/operation/UpdateDataRequest.class' \
+  'org/mtr/core/operation/DeleteDataRequest.class' \
+  org/mtr/mod/packet/PacketRequestResponseBase.class
+$JP -p org/mtr/core/data/Data.class | grep 'sync()'
+$JP -p org/mtr/core/operation/UpdateDataRequest.class | grep 'update()'
+$JP -p org/mtr/core/operation/DeleteDataRequest.class | grep 'delete('
+$JP -p org/mtr/mod/packet/PacketRequestResponseBase.class \
+  | grep -E 'runServerOutbound|runServer'
+```
+
+预期：`Data.sync()`、`UpdateDataRequest.update()`、`DeleteDataRequest.delete(Simulator)`、
+`PacketRequestResponseBase.runServerOutbound(...)` / `runServer(...)` 均存在，
+与 `mtrlock.mixins.json` 里的 `@Inject(method = "...")` 描述符一致；启动日志无 `Mixin apply failed`。
+
+### 9.3 团队 GUI 手动验证（双客户端 + 服务端）
+
+前置：两个客户端 A / B 均安装 mtrlock 1.2.3；A 为普通玩家，B 为普通玩家，再准备一个 OP 3+ 账号。
+
+| # | 操作 | 预期 |
+|---|---|---|
+| 1 | A `/mtrlock gui` | 打开团队 GUI；“我的团队”为空 |
+| 2 | A 创建团队“红石铁路局” | 成功；命令 `/team list` 也能看到同名团队（GUI 与命令一致） |
+| 3 | A 创建第 2、3 个团队 | 成功；第 4 个提示失败（每人最多 3 个） |
+| 4 | B 在 GUI 申请加入“红石铁路局” | A 的“待处理”出现该申请；`/team info` 也能看到 |
+| 5 | A 在“待处理”点批准 | B 成功入队；成员数 +1 |
+| 6 | A 在“邀请成员”选在线玩家 B2 | B2 的“待处理”出现邀请；点接受后入队 |
+| 7 | A 在“成员管理”对 B 点踢出 | B 离队；B 之前分享给该团队的对象在 GUI“分享管理”中消失 |
+| 8 | A 把对象分享给团队，再转让队长给 B | B 成为队长；A 保留成员身份 |
+| 9 | B（队长）在“危险操作”退出团队 | 退出按钮禁用（队长不能退）；解散按钮可用，二次确认后解散 |
+| 10 | 重复第 4 步两次 | 第二次提示“已申请过”，界面不变（无乐观更新） |
+| 11 | 用未安装客户端的账号执行 `/mtrlock gui` | 聊天栏提示“需要安装 mtrlock 客户端”，`/team ...` 命令仍可用 |
+
+### 9.4 称号 GUI 手动验证
+
+| # | 操作 | 预期 |
+|---|---|---|
+| 1 | 普通玩家 `/mtrlock gui title` | 拒绝并提示“需要 OP 权限等级 3”；不打开界面 |
+| 2 | OP 3+ `/mtrlock gui title` | 打开称号界面，列出在线玩家 |
+| 3 | 搜索并选中玩家，输入中文称号后保存 | 该玩家前缀变为 `[称号]`（聊天栏 / tab / 头顶） |
+| 4 | 输入 17 个字符 | 保存失败并提示非法；旧称号不变 |
+| 5 | 点“清除称号” | 称号被清除，回落到团队前缀 / 无前缀 |
+| 6 | 观察颜色区 | 16 原版色 / HEX / 最近使用置灰，标注“1.2.4 开放”；不影响保存纯文本 |
+
+### 9.5 协议与限流
+
+- 客户端与服务端版本不一致（例如只升级一端）时：`/mtrlock gui` 提示协议不匹配，界面不打开；
+- 连续快速点击 GUI 按钮：超过令牌桶额度后提示“操作过于频繁，请稍后再试”，数据不变；
+- 服务端日志可用关键字过滤：`已为 <uuid> 打开 TEAM GUI` / `TITLE GUI`。
+
+### 9.6 边界清单
+
+- 未装客户端：命令可用，GUI 入口提示安装客户端；
+- 无权限：普通玩家打不开称号 GUI，称号操作返回 `NEED_ADMIN`；
+- 团队满：创建第 4 个团队失败；批准 / 接受邀请时对方已达上限失败；
+- 重复申请 / 重复邀请 / 重复分享：均提示失败且不产生重复数据；
+- 非队长：踢人 / 转让 / 解散在 GUI 中返回失败（OP 3+ 兜底成功）。

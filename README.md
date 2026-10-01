@@ -26,10 +26,20 @@
   - 客户端头顶名字基于 S2C 同步的团队快照本地计算，无团队时不误标。
   - 装了 StyledChat / StyledPlayerList 时改用 Placeholder API，见下方“与 StyledChat / StyledPlayerList 共存”。
 
-- **管理员自定义称呼（1.2.2）**：OP 3+ 可用 `/mtrlock title <玩家名> <称呼>` 给任意玩家设置称呼、
-  `/mtrlock title clear <玩家名>` 清除、`/mtrlock title` 查看自己。
+- **管理员自定义称呼（1.2.2 / 1.2.3 GUI）**：OP 3+ 可用 `/mtrlock title <玩家名> <称呼>` 给任意玩家设置称呼、
+  `/mtrlock title clear <玩家名>` 清除、`/mtrlock title` 查看自己；也能用 `/mtrlock gui title` 在图形界面里操作。
   - 称呼最长 16 个 Unicode code point，不能为空、不能含控制字符；含空格需用双引号。
   - 显示优先级：**有自定义称呼 → `[称呼]`（完整显示、不截断）> 有团队 → `[团队名前两字]` > 都没有 → 不显示前缀**，聊天栏 / tab / 头顶统一生效。
+
+- **图形界面（1.2.3）**：团队系统与称号系统可在游戏内操作，命令入口全部保留。
+  - 团队 GUI：`/mtrlock gui` 或 `/mtrlock gui team`（普通玩家可用）。
+  - 称号 GUI：`/mtrlock gui title`（**仅 OP 3+**）。
+  - GUI 与命令走**同一段服务端逻辑**，权限判定、成功 / 失败结果完全一致；
+    客户端只做展示与发包，服务端校验通过后才下发全量快照（客户端不做乐观更新）。
+  - 未安装 mtrlock 客户端的玩家命令仍可用，GUI 入口会提示需要安装客户端。
+  - 称号 GUI 的颜色选择区（16 原版色 + HEX + 最近使用）本版**置灰**，标注“1.2.4 开放”；
+    本版实际生效的是纯文本称号的设置与清除。
+  - GUI 数据文件格式与 1.2.2 完全一致（`ownership.json` / `teams.json` / `shares.json` / `titles.json`）。
 
 ## 环境要求
 
@@ -40,7 +50,7 @@
 | Fabric API | 0.92.12+1.20.1 |
 | MTR (Minecraft Transit Railway) | >= 4.0.0（`FABRIC-4.0.0+1.20.1`） |
 | Java | 17+ |
-| 本模组 | mtrlock 1.2.2 |
+| 本模组 | mtrlock 1.2.3 |
 
 > StyledChat（`styledchat`）/ StyledPlayerList（`styledplayerlist`）是**可选**模组。
 > 装了它们时 mtrlock 改用 Placeholder API 暴露前缀（详见“与 StyledChat / StyledPlayerList 共存”），
@@ -52,7 +62,7 @@
 
 1. 安装 Fabric Loader（1.20.1）。
 2. 把以下 jar 放进 `mods/`：
-   - `mtrlock-1.2.2.jar`
+   - `mtrlock-1.2.3.jar`
    - `fabric-api-0.92.12+1.20.1.jar`
    - `minecraft-transit-railway-FABRIC-4.0.0+1.20.1.jar`
 3. 启动一次服务端，会生成 `config/mtrperm/ownership.json`。
@@ -64,6 +74,19 @@
 - 非创建者操作时：
   - **客户端**（MTR GUI）：快捷栏提示 `你没有权限编辑此对象` / `你没有权限删除此对象`，且不发包；
   - **服务端**：聊天栏同样提示，并拒绝操作。
+
+## 图形界面（GUI）与权限
+
+| 入口 | 谁能用 | 说明 |
+|---|---|---|
+| `/mtrlock gui`、`/mtrlock gui team` | 普通玩家（OP 3+ 兜底不变） | 团队：我的团队 / 创建 / 申请 / 邀请 / 待处理 / 成员管理 / 分享管理 / 退出·解散（二次确认） |
+| `/mtrlock gui title` | **仅 OP 3+** | 称号：搜索玩家 / 当前称号 / 文本（≤16 字）/ 颜色区（本版置灰）/ 预览 / 保存·清除 |
+
+- GUI 操作在服务端做**协议版本校验 → 限流 → 权限 / 目标校验**，再调用与命令相同的
+  `TeamActions` / `TitleActions`，因此 **GUI 与命令行为一致**。
+- 客户端发包前**不做乐观更新**；操作后等服务端 `GuiActionResultS2C` 与全量快照。
+- 未安装 mtrlock 客户端时命令入口仍可用，GUI 入口提示需要安装客户端。
+- 新增 GUI 通道带协议版本号；客户端 / 服务端版本不匹配时拒绝并提示。
 
 ## 配置文件
 
@@ -144,6 +167,10 @@ mtrlock 启动时会检测服务器是否装了 **StyledChat**（mod id `styledc
 - 客户端提示走快捷栏，服务端提示走聊天栏。
 - 团队信息（成员、分享）通过 S2C 同步到客户端，进服后约 1-2 秒内到达；在此之前客户端对非创建者 fail-open（不误拦），服务端仍精确拦截。
 - **S2C 协议在 1.2.2 新增 `titles` 字段**：服务端 1.2.2 与客户端 1.1.x（或反之）混用会不兼容，请两端同步升级到同一版本。
+
+- **GUI 与命令是同一套服务端逻辑**：GUI 只是入口，恶意客户端仍无法绕过服务端校验。
+- **GUI 为 1.2.3 新增协议**：使用 GUI 需要客户端与服务端同为 1.2.3；命令与显示前缀不受影响。
+- **称号颜色本版不生效**：颜色选择区（16 原版色 + HEX + 最近使用）置灰，计划 1.2.4 开放。
 
 > 完整验证步骤与排查清单见仓库根目录的 `VERIFY.md`。
 

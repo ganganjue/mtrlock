@@ -3,6 +3,8 @@ package com.mtrstar.lock.command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
+import com.mtrstar.lock.gui.GuiType;
+import com.mtrstar.lock.network.ServerGuiNetworking;
 import com.mtrstar.lock.perm.OwnershipData;
 import com.mtrstar.lock.team.ShareData;
 import com.mtrstar.lock.team.Team;
@@ -43,6 +45,13 @@ public final class MtrlockCommand {
                                 .then(CommandManager.argument("player", StringArgumentType.word())
                                         .then(CommandManager.argument("title", StringArgumentType.string())
                                                 .executes(MtrlockCommand::titleSet))))
+                        // 1.2.3：GUI 入口。命令永远可用；未装客户端时 GUI 只提示安装客户端。
+                        .then(CommandManager.literal("gui")
+                                .executes(ctx -> gui(ctx, GuiType.TEAM))
+                                .then(CommandManager.literal("team")
+                                        .executes(ctx -> gui(ctx, GuiType.TEAM)))
+                                .then(CommandManager.literal("title")
+                                        .executes(ctx -> gui(ctx, GuiType.TITLE))))
         );
     }
 
@@ -103,6 +112,18 @@ public final class MtrlockCommand {
                 Text.literal("[mtrlock] 你的自定义称呼已被清除").formatted(Formatting.YELLOW),
                 false);
         return 1;
+    }
+
+    /**
+     * /mtrlock gui、/mtrlock gui team、/mtrlock gui title。
+     *
+     * <p>权限与客户端判定都在 {@link ServerGuiNetworking#openGui}：称号 GUI 仅 OP 3+，
+     * 未装客户端只提示安装，命令入口本身不消耗权限判断分支。</p>
+     */
+    private static int gui(CommandContext<ServerCommandSource> ctx, GuiType type) {
+        final ServerPlayerEntity player = TeamCommand.requirePlayer(ctx);
+        if (player == null) return 0;
+        return ServerGuiNetworking.openGui(player, type) ? 1 : 0;
     }
 
     /** 命令层 OP 3+ 校验（非玩家 / 非 OP 打红字并返回 false）。 */

@@ -3,6 +3,7 @@ package com.mtrstar.lock;
 import com.mtrstar.lock.compat.DisplayModDetector;
 import com.mtrstar.lock.compat.MtrlockPlaceholders;
 import com.mtrstar.lock.network.OwnershipSync;
+import com.mtrstar.lock.network.ServerGuiNetworking;
 import com.mtrstar.lock.perm.OwnershipData;
 import com.mtrstar.lock.team.ShareData;
 import com.mtrstar.lock.team.TeamData;
@@ -52,6 +53,10 @@ TeamCommand.register(dispatcher);
 MtrlockCommand.register(dispatcher);
 });
 
+// 1.2.3：GUI 网络。注册两个 C2S 接收器（团队 / 称号）；
+// 打开入口走 /mtrlock gui，未装客户端的玩家由 canSend 判定后只提示、命令仍可用。
+ServerGuiNetworking.register();
+
 // This code runs as soon as Minecraft is in a mod-load-ready state.
 // However, some things (like resources) may still be uninitialized.
 // Proceed with mild caution.
@@ -83,6 +88,10 @@ ServerLifecycleEvents.SERVER_STOPPED.register(server -> OwnershipSync.clearServe
 // 功能 6：玩家进服时把当前归属快照推给他（含“是否 OP 3+”）
 ServerPlayConnectionEvents.JOIN.register((handler, sender, server) ->
 OwnershipSync.pushTo(handler.getPlayer()));
+
+// 1.2.3：玩家退服时清掉 GUI 限流桶，避免长期运行内存增长。
+ServerPlayConnectionEvents.DISCONNECT.register((handler, server) ->
+ServerGuiNetworking.clearRateLimit(handler.getPlayer().getUuidAsString()));
 
 // 兜底：即使服务端不是正常关闭（崩溃 / kill），进程退出时也尽量落盘一次。
 OwnershipData ownership = OwnershipData.getInstance();

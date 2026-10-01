@@ -41,3 +41,6 @@ hs_err_*.log
 replay_*.log
 *.hprof
 *.jfr
+
+# loom 为本地 file 依赖生成的标记文件
+*.loom-target.att
