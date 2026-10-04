@@ -31,6 +31,16 @@ public final class OwnershipSync {
     public static void setServer(MinecraftServer v) { server = v; }
     public static void clearServer() { server = null; }
 
+    /**
+     * 当前服务端引用（可能为 null：启动前 / 已停服）。
+     *
+     * <p>1.4.0 线路引用对账需要给在线 owner 发聊天提示，复用这里已在维护的
+     * 服务端引用，避免第二处追踪。调用方必须自己判 null。</p>
+     */
+    public static MinecraftServer getServer() {
+        return server;
+    }
+
     public static void pushToAll() {
         final MinecraftServer current = server;
         if (current == null) return;

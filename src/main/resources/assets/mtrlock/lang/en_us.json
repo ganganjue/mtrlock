@@ -122,5 +122,7 @@
   "gui.mtrlock.result.title_required": "This player has no title yet; set the title text first",
   "gui.mtrlock.result.unknown_action": "Unknown GUI action",
   "mtrlock.protection.deny_break": "You cannot break blocks here: this area belongs to another player's station or depot",
-  "mtrlock.protection.deny_place": "You cannot place blocks here: this area belongs to another player's station or depot"
+  "mtrlock.protection.deny_place": "You cannot place blocks here: this area belongs to another player's station or depot",
+  "mtrlock.refs.removed_notice": "[mtrlock] Your permission for a referenced station was revoked; these platform references were temporarily removed: %s. They will be added back automatically once permission is restored.",
+  "mtrlock.refs.restored_notice": "[mtrlock] Your permission for the station of removed platform references was restored; they have been added back: %s."
 }

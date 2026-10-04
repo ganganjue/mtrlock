@@ -122,5 +122,7 @@
   "gui.mtrlock.result.title_required": "该玩家还没有称号，请先设置称号文本再设置颜色",
   "gui.mtrlock.result.unknown_action": "未知的 GUI 操作",
   "mtrlock.protection.deny_break": "你不能在这里破坏方块：该区域属于其他玩家（或未对你开放）的车站 / 车厂",
-  "mtrlock.protection.deny_place": "你不能在这里放置方块：该区域属于其他玩家（或未对你开放）的车站 / 车厂"
+  "mtrlock.protection.deny_place": "你不能在这里放置方块：该区域属于其他玩家（或未对你开放）的车站 / 车厂",
+  "mtrlock.refs.removed_notice": "[mtrlock] 你引用的车站权限已被撤销，已临时移除相关站台：%s。恢复权限后会自动加回。",
+  "mtrlock.refs.restored_notice": "[mtrlock] 你对被移除站台的车站权限已恢复，已自动加回：%s。"
 }

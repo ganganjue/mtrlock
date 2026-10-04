@@ -9,6 +9,7 @@ import com.mtrstar.lock.perm.OwnershipData;
 import com.mtrstar.lock.protect.ProtectionConfig;
 import com.mtrstar.lock.protect.ProtectionIndex;
 import com.mtrstar.lock.protect.ProtectionListener;
+import com.mtrstar.lock.refs.RemovedRefsData;
 import com.mtrstar.lock.team.ShareData;
 import com.mtrstar.lock.team.TeamData;
 import com.mtrstar.lock.team.TitleData;
@@ -84,6 +85,10 @@ TitleData.getInstance().load();
 DisplayConfig.getInstance().load();
 // 1.3.0：区域方块保护配置（config/mtrperm/protection.properties）
 ProtectionConfig.getInstance().load();
+// 1.4.0：线路引用账本（config/mtrperm/removed_refs.json）加载 + 30 天清理。
+// 加载失败（loadFailed）时，Data#sync 的对账会整体跳过，不做任何移除。
+RemovedRefsData.getInstance().load();
+RemovedRefsData.getInstance().cleanupExpired();
 // 1.3.0：归属数据加载完成后重建一次空间索引。
 // MTR 的 Simulator 构造（内部 sync()）可能早于本回调，那时 ownership.json 还没读，
 // 所以这里用「记住的 Simulator」再兜底重建一次，避免重启后保护失效。
@@ -102,6 +107,8 @@ TitleData.getInstance().save();
 DisplayConfig.getInstance().save();
 // 1.3.0：区域方块保护配置写回
 ProtectionConfig.getInstance().save();
+// 1.4.0：线路引用账本写回（未落盘的节流变更也必须在这里落一次）
+RemovedRefsData.getInstance().flush();
 });
 ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
 OwnershipSync.clearServer();
@@ -125,6 +132,7 @@ ShareData shares = ShareData.getInstance();
 TitleData titles = TitleData.getInstance();
 DisplayConfig displayConfig = DisplayConfig.getInstance();
 ProtectionConfig protectionConfig = ProtectionConfig.getInstance();
+RemovedRefsData removedRefs = RemovedRefsData.getInstance();
 Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 ownership.save();
 shares.save();
@@ -132,6 +140,7 @@ teams.save();
 titles.save();
 displayConfig.save();
 protectionConfig.save();
+removedRefs.flush();
 }, "mtrlock-data-save"));
 }
 
