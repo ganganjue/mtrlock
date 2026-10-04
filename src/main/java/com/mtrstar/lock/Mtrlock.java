@@ -6,6 +6,9 @@ import com.mtrstar.lock.compat.MtrlockPlaceholders;
 import com.mtrstar.lock.network.OwnershipSync;
 import com.mtrstar.lock.network.ServerGuiNetworking;
 import com.mtrstar.lock.perm.OwnershipData;
+import com.mtrstar.lock.protect.ProtectionConfig;
+import com.mtrstar.lock.protect.ProtectionIndex;
+import com.mtrstar.lock.protect.ProtectionListener;
 import com.mtrstar.lock.team.ShareData;
 import com.mtrstar.lock.team.TeamData;
 import com.mtrstar.lock.team.TitleData;
@@ -58,6 +61,10 @@ MtrlockCommand.register(dispatcher);
 // 打开入口走 /mtrlock gui，未装客户端的玩家由 canSend 判定后只提示、命令仍可用。
 ServerGuiNetworking.register();
 
+// 1.3.0：区域方块保护（车站 / 车厂矩形范围内的方块破坏与放置）。
+// 纯服务端权威判定，客户端拦截行为不变；未装客户端同样生效。
+ProtectionListener.register();
+
 // This code runs as soon as Minecraft is in a mod-load-ready state.
 // However, some things (like resources) may still be uninitialized.
 // Proceed with mild caution.
@@ -75,6 +82,12 @@ ShareData.getInstance().cleanupOrphanTeams();
 TitleData.getInstance().load();
 // 1.2.4：占位符显示配置（config/mtrperm/display.json）
 DisplayConfig.getInstance().load();
+// 1.3.0：区域方块保护配置（config/mtrperm/protection.properties）
+ProtectionConfig.getInstance().load();
+// 1.3.0：归属数据加载完成后重建一次空间索引。
+// MTR 的 Simulator 构造（内部 sync()）可能早于本回调，那时 ownership.json 还没读，
+// 所以这里用「记住的 Simulator」再兜底重建一次，避免重启后保护失效。
+ProtectionIndex.rebuildFromRememberedServerData();
 // 功能 6：保存 server 引用，供 setCreator/removeCreator 后的 S2C 全量推送使用
 OwnershipSync.setServer(server);
 });
@@ -87,8 +100,15 @@ TeamData.getInstance().save();
 TitleData.getInstance().save();
 // 1.2.4：显示配置写回
 DisplayConfig.getInstance().save();
+// 1.3.0：区域方块保护配置写回
+ProtectionConfig.getInstance().save();
 });
-ServerLifecycleEvents.SERVER_STOPPED.register(server -> OwnershipSync.clearServer());
+ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
+OwnershipSync.clearServer();
+// 1.3.0：清掉记住的 Simulator 与空间索引（集成服务器会随存档反复启停）
+ProtectionIndex.forgetServerData();
+ProtectionIndex.get().clear();
+});
 
 // 功能 6：玩家进服时把当前归属快照推给他（含“是否 OP 3+”）
 ServerPlayConnectionEvents.JOIN.register((handler, sender, server) ->
@@ -104,12 +124,14 @@ TeamData teams = TeamData.getInstance();
 ShareData shares = ShareData.getInstance();
 TitleData titles = TitleData.getInstance();
 DisplayConfig displayConfig = DisplayConfig.getInstance();
+ProtectionConfig protectionConfig = ProtectionConfig.getInstance();
 Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 ownership.save();
 shares.save();
 teams.save();
 titles.save();
 displayConfig.save();
+protectionConfig.save();
 }, "mtrlock-data-save"));
 }
 

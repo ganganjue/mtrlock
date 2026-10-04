@@ -240,4 +240,45 @@ class ProtectionRangesTest {
         assertThrows(UnsupportedOperationException.class,
                 () -> ranges.add(ObjectRange.ofCorners("station:X", 0, 0, 1, 1)));
     }
+
+    // =====================================================================
+    // protectStations / protectDepots 开关
+    // =====================================================================
+
+    @Test
+    @DisplayName("protectStations=false：只收车厂，车站不进索引")
+    void stationsFlagOff() {
+        final Data data = new ClientData();
+        addStation(data, 0, 0, 10, 10);
+        final Depot depot = addDepot(data, 20, 20, 30, 30);
+
+        final List<ObjectRange> ranges = ProtectionRanges.collect(data, ALL_OWNED, 0, false, true);
+
+        assertEquals(1, ranges.size());
+        assertEquals("depot:" + depot.getHexId(), ranges.get(0).objectId());
+    }
+
+    @Test
+    @DisplayName("protectDepots=false：只收车站，车厂不进索引")
+    void depotsFlagOff() {
+        final Data data = new ClientData();
+        final Station station = addStation(data, 0, 0, 10, 10);
+        addDepot(data, 20, 20, 30, 30);
+
+        final List<ObjectRange> ranges = ProtectionRanges.collect(data, ALL_OWNED, 0, true, false);
+
+        assertEquals(1, ranges.size());
+        assertEquals("station:" + station.getHexId(), ranges.get(0).objectId());
+    }
+
+    @Test
+    @DisplayName("两个开关都关：空列表")
+    void bothFlagsOff() {
+        final Data data = new ClientData();
+        addStation(data, 0, 0, 10, 10);
+        addDepot(data, 20, 20, 30, 30);
+
+        assertTrue(ProtectionRanges.collect(data, ALL_OWNED, 0, false, false).isEmpty());
+    }
+
 }

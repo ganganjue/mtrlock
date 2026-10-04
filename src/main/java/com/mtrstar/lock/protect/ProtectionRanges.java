@@ -43,15 +43,35 @@ public final class ProtectionRanges {
      * @return 不可变范围列表（可能为空）
      */
     public static List<ObjectRange> collect(Data data, Predicate<String> hasCreator, int expandBlocks) {
+        return collect(data, hasCreator, expandBlocks, true, true);
+    }
+
+    /**
+     * 收集受保护范围，可分别关闭车站 / 车厂保护（配置 {@code protectStations} /
+     * {@code protectDepots}）。
+     *
+     * @param data            MTR 服务端数据；null 返回空列表
+     * @param hasCreator      归属判定；null 视为无归属
+     * @param expandBlocks    向外扩张方块数
+     * @param protectStations 是否收集车站
+     * @param protectDepots   是否收集车厂
+     * @return 不可变范围列表（可能为空）
+     */
+    public static List<ObjectRange> collect(Data data, Predicate<String> hasCreator, int expandBlocks,
+                                            boolean protectStations, boolean protectDepots) {
         if (data == null || hasCreator == null) {
             return Collections.emptyList();
         }
         final List<ObjectRange> ranges = new ArrayList<>();
-        for (Station station : data.stations) {
-            addRange(ranges, PermissionChecker.PREFIX_STATION, station, hasCreator, expandBlocks);
+        if (protectStations) {
+            for (Station station : data.stations) {
+                addRange(ranges, PermissionChecker.PREFIX_STATION, station, hasCreator, expandBlocks);
+            }
         }
-        for (Depot depot : data.depots) {
-            addRange(ranges, PermissionChecker.PREFIX_DEPOT, depot, hasCreator, expandBlocks);
+        if (protectDepots) {
+            for (Depot depot : data.depots) {
+                addRange(ranges, PermissionChecker.PREFIX_DEPOT, depot, hasCreator, expandBlocks);
+            }
         }
         return Collections.unmodifiableList(ranges);
     }

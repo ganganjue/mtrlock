@@ -120,5 +120,7 @@
   "gui.mtrlock.result.color_reset": "Title color cleared",
   "gui.mtrlock.result.color_invalid": "Invalid color: use a vanilla code (&a / red), #RRGGBB, or &x&r&r&g&g&b&b",
   "gui.mtrlock.result.title_required": "This player has no title yet; set the title text first",
-  "gui.mtrlock.result.unknown_action": "Unknown GUI action"
+  "gui.mtrlock.result.unknown_action": "Unknown GUI action",
+  "mtrlock.protection.deny_break": "You cannot break blocks here: this area belongs to another player's station or depot",
+  "mtrlock.protection.deny_place": "You cannot place blocks here: this area belongs to another player's station or depot"
 }
