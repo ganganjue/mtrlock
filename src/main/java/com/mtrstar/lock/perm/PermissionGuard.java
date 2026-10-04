@@ -17,13 +17,15 @@ import java.util.List;
  * {@link ParentLookup}（子对象 platform/siding 对应的父对象 station/depot）、
  * {@link EditPermission}（该玩家能否编辑它）。</p>
  *
- * <p>核心规则（只拦“编辑 / 删除”，不拦“创建”）：</p>
+ * <p>核心规则（只拦“编辑 / 删除 / 车厂操作”，不拦“创建”）：</p>
  * <ul>
  *   <li><b>顶层对象</b>（station / route / depot）：{@code hasCreator == false} → 视为创建 / 未知 → 放行（fail-open）；
  *       {@code hasCreator == true} 且 {@code canEdit == false} → 记入 denied。</li>
  *   <li><b>子对象</b>（platform / siding）：先用 {@link ParentLookup} 找到父对象，
  *       再用<b>父对象</b>的归属与权限判定（“改子对象 = 改它所属的车站 / 车厂”）；
  *       父对象查不到 / 无归属记录 → fail-open 放行。</li>
+ *   <li><b>车厂操作</b>（1.4.1，{@code depotIds}）：见
+ *       {@link #findDeniedInDepotOperation(String, CreatorLookup, EditPermission)}。</li>
  * </ul>
  *
  * <p>objectId 统一为 {@code <prefix>:<hexId>}，hexId 用
@@ -134,6 +136,44 @@ public final class PermissionGuard {
         collectLongs(root, "depotIds", PermissionChecker.PREFIX_DEPOT, creators, parents, permission, denied);
         collectLongs(root, "platformIds", ChildParents.PREFIX_PLATFORM, creators, parents, permission, denied);
         collectLongs(root, "sidingIds", ChildParents.PREFIX_SIDING, creators, parents, permission, denied);
+        return denied;
+    }
+
+    // =====================================================================
+    // 车厂操作请求（DepotOperationByIds，1.4.1）
+    // =====================================================================
+
+    /**
+     * 车厂操作请求（{@code DepotOperationByIds} 的 JSON，1.4.1）。
+     *
+     * <p>对应三个 C2S 包，载荷结构完全相同（只有 {@code depotIds} 一个 long 数组）：</p>
+     * <ul>
+     *   <li>{@code generate_by_depot_ids}（{@code PacketDepotGenerate}）—— 生成列车；</li>
+     *   <li>{@code instant_deploy_by_depot_ids}（{@code PacketDepotInstantDeploy}）—— 即时部署；</li>
+     *   <li>{@code clear_by_depot_ids}（{@code PacketDepotClear}）—— 清空车辆。</li>
+     * </ul>
+     *
+     * <p>车厂是顶层对象，直接用<b>自身归属</b>判定（不走 {@link ChildParents}）；
+     * 没有任何归属记录 → fail-open 放行，与编辑 / 删除的语义一致。</p>
+     *
+     * <p>只在 {@code PacketRequestResponseBase#runServerOutbound} 的 HEAD 调用——那里才拿得到玩家；
+     * 请求入队后（{@code OperationProcessor} / {@code Depot}）已经没有玩家身份了。</p>
+     *
+     * @param contentJson 请求 JSON（{@code PacketRequestResponseBase.content}）
+     * @param creators    归属查询
+     * @param permission  权限查询
+     * @return 被拒绝的 objectId 列表；空表示全部放行
+     */
+    public static List<String> findDeniedInDepotOperation(String contentJson,
+                                                          CreatorLookup creators,
+                                                          EditPermission permission) {
+        final List<String> denied = new ArrayList<>();
+        final JsonObject root = parse(contentJson);
+        if (root == null) {
+            return denied;
+        }
+        // parents = null：车厂是顶层对象，不需要子对象 → 父对象反查
+        collectLongs(root, "depotIds", PermissionChecker.PREFIX_DEPOT, creators, null, permission, denied);
         return denied;
     }
 
