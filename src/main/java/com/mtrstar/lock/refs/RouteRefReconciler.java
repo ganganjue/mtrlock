@@ -35,10 +35,17 @@ import java.util.Set;
  * OP 等级是在线玩家的实时属性，owner 是离线 UUID，推不出来；这与「OP 不进快照」一致。</p>
  *
  * <p><b>平台 → 车站反查</b>用运行时 {@code data.platformIdMap.get(platformId).area}
- * （{@code Platform.area} 由 MTR 在 sync 内部挂好，RETURN 时非本轮对账前的旧值），
- * 不依赖 {@code ChildParents}，也不依赖同一注入点上其它注入器的相对顺序。
- * {@code platform == null}（站台已删）或 {@code area == null}（孤儿站台 / 几何不匹配）
- * 在当前引用一侧一律 fail-open 放行。</p>
+ * （{@code Platform.area} 由 MTR 在 sync 内部挂好，RETURN 时已是本轮结果），
+ * 不依赖 {@code ChildParents}，也不依赖同一注入点上其它注入器的相对顺序。</p>
+ *
+ * <p><b>父车站拿不到时的两条规则</b>（设计明确要求）：</p>
+ * <ul>
+ *   <li>{@code platform == null}（站台对象已从存档消失）→ <b>fail-open 放行</b>：
+ *       这不是权限问题，MTR 自己的 sync 已经把这个条目剪掉了；</li>
+ *   <li>{@code area == null}（所属<b>车站已被删除</b>，站台成孤儿）→
+ *       <b>「视为失去权限」自动移除</b>，并记一笔 {@code stationObjectId = null} 的账；
+ *       账本里已有记录的引用不再重复判定 / 记账，保持移除。</li>
+ * </ul>
  *
  * <p><b>已知取舍</b>：加回的站台会追加到线路末尾，不还原原始站序；移除 / 加回都会让线路变脏，
  * MTR 会在 autosave 时写进存档——{@link RemovedRefsData} 就是这些引用的唯一恢复源。</p>
