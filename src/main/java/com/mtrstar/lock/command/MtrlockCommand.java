@@ -66,6 +66,8 @@ public final class MtrlockCommand {
                                         .executes(ctx -> gui(ctx, GuiType.TITLE))))
                         // 1.3.0：区域方块保护管理命令（OP 3+）
                         .then(ProtectCommand.build())
+                        // 1.4.0：线路引用账本管理命令（OP 3+）
+                        .then(RefsCommand.build())
         );
     }
 

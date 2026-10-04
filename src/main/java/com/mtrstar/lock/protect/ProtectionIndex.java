@@ -83,6 +83,16 @@ public final class ProtectionIndex {
         return serverData != null;
     }
 
+    /**
+     * 已记住的服务端 MTR 数据；没有则返回 null。
+     *
+     * <p>1.4.0 {@code /mtrlock refs restore} 需要按 routeId 找回线路对象，
+     * 复用这里已在维护的「最近一次见过的 Simulator」引用，不重复追踪。</p>
+     */
+    public static Data getRememberedServerData() {
+        return serverData;
+    }
+
     /** 已记住的服务端数据里车站 + 车厂数量（{@code /mtrlock protect status} 展示用）。 */
     public static int rememberedObjectCount() {
         final Data data = serverData;

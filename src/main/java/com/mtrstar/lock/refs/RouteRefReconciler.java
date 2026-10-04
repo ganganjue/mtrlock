@@ -271,8 +271,27 @@ public final class RouteRefReconciler {
         return "route:" + hexId;
     }
 
+    /**
+     * 手动恢复一条被移除的引用（{@code /mtrlock refs restore} 与测试用）。
+     *
+     * <p>调用方负责把 {@code route.getRoutePlatforms()} 里的引用加回去，这里只删账本记录，
+     * 并让节流落盘立即生效。</p>
+     *
+     * @return 确实删掉了一条记录返回 true
+     */
+    public static boolean forgetRemoved(RemovedRefsData removedRefs, String routeId, long platformId) {
+        if (removedRefs == null) {
+            return false;
+        }
+        final boolean removed = removedRefs.removeRemoved(routeId, platformId);
+        if (removed) {
+            removedRefs.flush();
+        }
+        return removed;
+    }
+
     /** routeId → Route（线性查找；sync 后线路数量有限，够用且无额外索引维护）。 */
-    static Route routeById(Data data, String routeId) {
+    public static Route routeById(Data data, String routeId) {
         if (routeId == null || routeId.isEmpty()) {
             return null;
         }
