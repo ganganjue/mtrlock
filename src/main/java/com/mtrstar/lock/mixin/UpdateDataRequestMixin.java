@@ -3,6 +3,7 @@ package com.mtrstar.lock.mixin;
 import com.mtrstar.lock.Mtrlock;
 import com.mtrstar.lock.perm.OwnershipData;
 import com.mtrstar.lock.perm.PendingCreators;
+import com.mtrstar.lock.protect.ProtectionIndex;
 import org.mtr.core.data.Data;
 import org.mtr.core.data.NameColorDataBase;
 import org.mtr.core.operation.UpdateDataRequest;
@@ -92,6 +93,12 @@ public abstract class UpdateDataRequestMixin {
         recordNew(data.stations, before.stations, "station");
         recordNew(data.routes, before.routes, "route");
         recordNew(data.depots, before.depots, "depot");
+
+        // 1.3.0：归属落库后同步区域方块保护的空间索引。
+        // update() 内部的 Data.sync() 早于本方法执行，新建对象在那时还没有归属记录，
+        // 所以必须在这里再补一次。与 Data#sync() 钩子里的重建是刻意的冗余：
+        // 保证「归属落库前」和「归属落库后」两个时刻索引都被覆盖。
+        ProtectionIndex.rebuildFrom(data, 0);
     }
 
     /** 把集合里所有对象的 long id 收成一个 Set，作为“调用前快照”。 */

@@ -4,6 +4,7 @@ import com.mtrstar.lock.Mtrlock;
 import com.mtrstar.lock.perm.ChildParents;
 import com.mtrstar.lock.perm.OwnershipData;
 import com.mtrstar.lock.perm.PermissionChecker;
+import com.mtrstar.lock.protect.ProtectionIndex;
 import org.mtr.core.operation.DeleteDataRequest;
 import org.mtr.core.operation.DeleteDataResponse;
 import org.mtr.core.simulation.Simulator;
@@ -79,6 +80,9 @@ public abstract class DeleteOwnershipCleanupMixin {
             final String objectId = prefix + ":" + Utilities.numberToPaddedHexString(ids.getLong(i));
             final boolean hadCreator = OwnershipData.getInstance().hasCreator(objectId);
             OwnershipData.getInstance().removeCreator(objectId);
+            // 1.3.0：归属记录删掉的同时，把区域方块保护的空间索引条目一并移除
+            // （route 没有范围，remove 是无副作用的 no-op）。
+            ProtectionIndex.get().remove(objectId);
             if (hadCreator) {
                 Mtrlock.LOGGER.info("[mtrlock] 删除清理归属记录: {}", objectId);
             }
