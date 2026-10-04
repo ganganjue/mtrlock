@@ -49,6 +49,7 @@ class ProtectionConfigTest {
         assertTrue(c.isProtectDepots());
         assertEquals(0, c.getExpandBlocks());
         assertTrue(c.isNotifyPlayer());
+        assertTrue(c.isProtectDepotOperations(), "1.4.1 车厂操作拦截默认开启");
     }
 
     @Test
@@ -60,6 +61,7 @@ class ProtectionConfigTest {
         assertFalse(c.hasLoadFailed());
         assertTrue(c.isEnabled());
         assertEquals(0, c.getExpandBlocks());
+        assertTrue(c.isProtectDepotOperations());
     }
 
     @Test
@@ -70,7 +72,8 @@ class ProtectionConfigTest {
                 + "protectStations=false\n"
                 + "protectDepots=true\n"
                 + "expandBlocks=16\n"
-                + "notifyPlayer=false\n");
+                + "notifyPlayer=false\n"
+                + "protectDepotOperations=false\n");
         final ProtectionConfig c = config();
         c.load();
         assertFalse(c.hasLoadFailed());
@@ -79,6 +82,7 @@ class ProtectionConfigTest {
         assertTrue(c.isProtectDepots());
         assertEquals(16, c.getExpandBlocks());
         assertFalse(c.isNotifyPlayer());
+        assertFalse(c.isProtectDepotOperations(), "显式 false 应被读取");
     }
 
     @Test
@@ -201,6 +205,7 @@ class ProtectionConfigTest {
         a.setProtectDepots(false);
         a.setExpandBlocks(12);
         a.setNotifyPlayer(false);
+        a.setProtectDepotOperations(false);
         a.save();
 
         final ProtectionConfig b = config();
@@ -211,6 +216,7 @@ class ProtectionConfigTest {
         assertFalse(b.isProtectDepots());
         assertEquals(12, b.getExpandBlocks());
         assertFalse(b.isNotifyPlayer());
+        assertFalse(b.isProtectDepotOperations(), "1.4.1 开关应能落盘并读回");
     }
 
     @Test
@@ -222,12 +228,14 @@ class ProtectionConfigTest {
         c.setProtectDepots(false);
         c.setExpandBlocks(9);
         c.setNotifyPlayer(false);
+        c.setProtectDepotOperations(false);
         c.resetToDefaults();
         assertTrue(c.isEnabled());
         assertTrue(c.isProtectStations());
         assertTrue(c.isProtectDepots());
         assertEquals(0, c.getExpandBlocks());
         assertTrue(c.isNotifyPlayer());
+        assertTrue(c.isProtectDepotOperations());
     }
 
     @Test
@@ -240,5 +248,46 @@ class ProtectionConfigTest {
         assertTrue(text.contains("已禁用"));
         assertTrue(text.contains("5"));
         assertTrue(text.contains("protection.properties"));
+    }
+
+    // =====================================================================
+    // 1.4.1：protectDepotOperations
+    // =====================================================================
+
+    @Test
+    @DisplayName("protectDepotOperations 非法值 → 回退默认 true，不标记 loadFailed")
+    void depotOperationsInvalidFallsBack() throws Exception {
+        write("protectDepotOperations=maybe\n");
+        final ProtectionConfig c = config();
+        c.load();
+        assertFalse(c.hasLoadFailed());
+        assertTrue(c.isProtectDepotOperations(), "非法布尔值应回退默认 true");
+    }
+
+    @Test
+    @DisplayName("protectDepotOperations 缺省（老配置文件）→ 默认 true")
+    void depotOperationsMissingKeyDefaultsTrue() throws Exception {
+        write("enabled=true\nprotectStations=true\nprotectDepots=true\n");
+        final ProtectionConfig c = config();
+        c.load();
+        assertTrue(c.isProtectDepotOperations(), "1.3.0 的老配置升级后应默认开启车厂操作拦截");
+    }
+
+    @Test
+    @DisplayName("statusLines 含车厂操作拦截一行")
+    void statusLinesIncludesDepotOperations() {
+        final ProtectionConfig c = config();
+        assertTrue(String.join("\n", c.statusLines()).contains("车厂操作拦截（生成 / 即时部署 / 清空）：是"));
+        c.setProtectDepotOperations(false);
+        assertTrue(String.join("\n", c.statusLines()).contains("车厂操作拦截（生成 / 即时部署 / 清空）：否"));
+    }
+
+    @Test
+    @DisplayName("save 写出的文件包含 protectDepotOperations 键（默认 true）")
+    void saveWritesDepotOperationsKey() throws Exception {
+        final ProtectionConfig c = config();
+        c.save();
+        final String content = Files.readString(file(), StandardCharsets.UTF_8);
+        assertTrue(content.contains("protectDepotOperations=true"), content);
     }
 }

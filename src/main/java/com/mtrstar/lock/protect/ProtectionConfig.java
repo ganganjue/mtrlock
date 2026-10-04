@@ -19,11 +19,12 @@ import java.util.Properties;
  *
  * <p>持久化到 {@code config/mtrperm/protection.properties}：</p>
  * <pre>
- * enabled=true            # 总开关
- * protectStations=true    # 保护车站矩形
- * protectDepots=true      # 保护车厂矩形
- * expandBlocks=0          # 范围向外扩张的方块数
- * notifyPlayer=true       # 拒绝时给玩家发提示
+ * enabled=true                 # 总开关
+ * protectStations=true         # 保护车站矩形
+ * protectDepots=true           # 保护车厂矩形
+ * expandBlocks=0               # 范围向外扩张的方块数
+ * notifyPlayer=true            # 拒绝时给玩家发提示
+ * protectDepotOperations=true  # 1.4.1：拦截别人的车厂操作（生成列车 / 即时部署 / 清空车辆）
  * </pre>
  *
  * <p>沿用与其它数据文件一致的坏文件保护：结构损坏（IO 异常 / uXXXX 形式的 Unicode 转义非法）
@@ -41,6 +42,8 @@ public final class ProtectionConfig {
     public static final boolean DEFAULT_PROTECT_DEPOTS = true;
     public static final int DEFAULT_EXPAND_BLOCKS = 0;
     public static final boolean DEFAULT_NOTIFY_PLAYER = true;
+    /** 1.4.1：是否拦截「非归属者」对车厂执行生成列车 / 即时部署 / 清空车辆。 */
+    public static final boolean DEFAULT_PROTECT_DEPOT_OPERATIONS = true;
 
     /**
      * {@code expandBlocks} 上限。
@@ -69,6 +72,7 @@ public final class ProtectionConfig {
     private volatile boolean protectDepots = DEFAULT_PROTECT_DEPOTS;
     private volatile int expandBlocks = DEFAULT_EXPAND_BLOCKS;
     private volatile boolean notifyPlayer = DEFAULT_NOTIFY_PLAYER;
+    private volatile boolean protectDepotOperations = DEFAULT_PROTECT_DEPOT_OPERATIONS;
 
     /** 上一次 {@link #load()} 是否因结构损坏失败；true 时 save() 跳过。 */
     private boolean loadFailed;
@@ -107,6 +111,11 @@ public final class ProtectionConfig {
         return notifyPlayer;
     }
 
+    /** 1.4.1：是否拦截别人的车厂操作（生成列车 / 即时部署 / 清空车辆）。 */
+    public boolean isProtectDepotOperations() {
+        return protectDepotOperations;
+    }
+
     // =====================================================================
     // 设值（测试 / 未来的配置命令）
     // =====================================================================
@@ -131,6 +140,10 @@ public final class ProtectionConfig {
         notifyPlayer = value;
     }
 
+    public void setProtectDepotOperations(boolean value) {
+        protectDepotOperations = value;
+    }
+
     /** 仅供测试 / 调试：上一次 load() 是否失败。 */
     public boolean hasLoadFailed() {
         synchronized (ioLock) {
@@ -145,6 +158,7 @@ public final class ProtectionConfig {
         protectDepots = DEFAULT_PROTECT_DEPOTS;
         expandBlocks = DEFAULT_EXPAND_BLOCKS;
         notifyPlayer = DEFAULT_NOTIFY_PLAYER;
+        protectDepotOperations = DEFAULT_PROTECT_DEPOT_OPERATIONS;
     }
 
     /** 供 {@code /mtrlock protect status} 展示的多行文本。 */
@@ -155,6 +169,7 @@ public final class ProtectionConfig {
         lines.add("  车厂范围：" + (protectDepots ? "保护" : "不保护"));
         lines.add("  向外扩张：" + expandBlocks + " 格");
         lines.add("  拒绝时提示玩家：" + (notifyPlayer ? "是" : "否"));
+        lines.add("  车厂操作拦截（生成 / 即时部署 / 清空）：" + (protectDepotOperations ? "是" : "否"));
         lines.add("  配置文件：" + file);
         lines.add("  加载状态：" + (hasLoadFailed() ? "上次加载失败（已保留内存值，不会覆盖坏文件）" : "正常"));
         return lines;
@@ -190,6 +205,8 @@ public final class ProtectionConfig {
             protectDepots = readBoolean(properties, "protectDepots", DEFAULT_PROTECT_DEPOTS);
             expandBlocks = readInt(properties, "expandBlocks", DEFAULT_EXPAND_BLOCKS);
             notifyPlayer = readBoolean(properties, "notifyPlayer", DEFAULT_NOTIFY_PLAYER);
+            protectDepotOperations = readBoolean(properties, "protectDepotOperations",
+                    DEFAULT_PROTECT_DEPOT_OPERATIONS);
 
             loadFailed = false;
             Mtrlock.LOGGER.info("[mtrlock] 区域方块保护: {} (车站 {} / 车厂 {} / 扩张 {} 格)",
@@ -226,6 +243,8 @@ public final class ProtectionConfig {
                     writer.write("expandBlocks=" + expandBlocks);
                     writer.newLine();
                     writer.write("notifyPlayer=" + notifyPlayer);
+                    writer.newLine();
+                    writer.write("protectDepotOperations=" + protectDepotOperations);
                     writer.newLine();
                 }
             } catch (IOException e) {
