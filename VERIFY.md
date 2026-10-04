@@ -541,3 +541,84 @@ javap -verbose -cp /tmp ColorParser 2>/dev/null | grep -E "major version"
 - **坏文件**：把 `titles.json` 改成非法 JSON → `loadFailed`，旧内存保留、`save()` 不覆盖坏文件；
   修复或删除文件后重启恢复。
 - **未装客户端**：命令全部可用；`/mtrlock gui` 提示需要安装客户端。
+
+---
+
+## 11. 1.3.0 区域方块保护验证
+
+### 11.1 构建、测试与 Java target
+
+```bash
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-arm64
+export PATH="$JAVA_HOME/bin:$PATH"
+./gradlew test --offline --console=plain    # 328 → 413，全绿
+./gradlew build --offline --console=plain   # build/libs/mtrlock-1.3.0.jar
+
+# Java target 仍为 17
+grep -nE "release = 17|sourceCompatibility|targetCompatibility" build.gradle
+
+# 产物字节码版本应为 61（Java 17）
+unzip -p build/libs/mtrlock-1.3.0.jar com/mtrstar/lock/protect/SpatialIndex.class > /tmp/SpatialIndex.class
+javap -verbose -cp /tmp SpatialIndex 2>/dev/null | grep -E "major version"
+
+# 1.3.0 新增测试类应全绿
+ls build/test-results/test/ | grep -E "ObjectRange|SpatialIndex|ProtectionRanges|ProtectionConfig|BlockProtection|ProtectionCoexistence"
+```
+
+### 11.2 场景清单（双客户端 + 服务端）
+
+> 前置：A、B 两名非 OP 玩家；另备一名 OP 3+。A 先创建对象。坐标用 F3 查看。
+> **方块破坏**用左键挖，**方块放置**用手持方块右键点地面。
+
+| # | 场景 | 操作 | 预期结果 |
+|---|---|---|---|
+| 1 | 车站范围内破坏被拒 | A 建一个车站；B 走进矩形内挖任意方块 | 方块**不消失**；B 收到红字 `你不能在这里破坏方块…`；服务端日志有 `拦截 <B-UUID> 在 (x, z) 的方块破坏，保护对象: [station:<HEX>]` |
+| 2 | 车站范围外破坏放行 | B 走到矩形**外**挖方块 | 正常破坏，无提示、无日志 |
+| 3 | 创建者放行 | A 在自己车站矩形内挖 / 放方块 | 正常，无拦截 |
+| 4 | 团队成员放行 | A 与 B 建团队、A 把车站分享给该团队；B 在矩形内破坏 | 正常放行（与编辑保护同一套判定） |
+| 5 | OP 3+ 放行 | OP 在 B 的车站矩形内破坏 / 放置 | 正常放行 |
+| 6 | 车站范围内放置被拒 | B 手持方块在 A 车站矩形内右键放置 | 方块**放不下**；B 收到红字 `你不能在这里放置方块…` |
+| 7 | 车站范围外放置放行 | B 在矩形外放置 | 正常放下 |
+| 8 | 车站删除后不再保护 | A 删除该车站；B 回到原矩形内破坏 | 正常放行（索引随删除立即移除） |
+| 9 | 车厂同车站 | 对 depot 重复 #1–#8 | 同车站，`保护对象: [depot:<HEX>]` |
+| 10 | 站台 / 侧线随父对象 | 在 A 车站里放一个站台、在 A 车厂里放一条侧线；B 在站台 / 侧线所在方块处破坏 | 被拒绝（位置被父车站 / 车厂的矩形覆盖，**没有** `platform:` / `siding:` 保护对象） |
+| 11 | **重启后仍保护（关键）** | 停服 → 开服 → B 直接在 A 的车站矩形内破坏 | **仍被拒绝**（`Data#sync()` 在存档加载完成后自动重建索引）；`/mtrlock protect status` 显示索引对象数 > 0 |
+| 12 | 改范围后索引更新 | A 把车站矩形改大；B 在新增区域内破坏 | 被拒绝（`UpdateDataRequest#update()` RETURN 重建） |
+| 13 | 无归属对象 fail-open | 手工删除 `ownership.json` 里某车站条目并重启；B 在该车站矩形内破坏 | 放行（无归属 → 不保护） |
+| 14 | 总开关 | `enabled=false` → `/mtrlock protect reload` → B 在矩形内破坏 | 放行 |
+| 15 | 车站开关 | `protectStations=false`（车厂保持 true）→ `reload` | 车站内放行；车厂内仍被拒 |
+| 16 | 范围扩张 | `expandBlocks=5` → `reload`；B 在矩形外 3 格处破坏 | 被拒绝（扩张生效）；扩大站外 10 格处则放行 |
+| 17 | 提示开关 | `notifyPlayer=false` → `reload`；B 范围内破坏 | 仍被拒绝，但**不弹提示**；日志仍有 `拦截` |
+| 18 | 命令权限 | 非 OP 执行 `/mtrlock protect status|reload|rebuild` | 红字 `需要 OP 权限等级 3 才能使用该命令`，无副作用 |
+| 19 | 命令功能 | OP 执行 `status` / `reload` / `rebuild` | `status` 列出开关与索引规模；`reload` 重读配置；`rebuild` 重建索引并显示对象数 / chunk 数 |
+| 20 | 配置坏文件保护 | 关服 → 把 `protection.properties` 写成含非法 Unicode 转义的内容（如 `enabled=\uZZZZ`）→ 开服 | 启动报 `加载保护配置失败，保留当前设置，后续 save 将跳过`；内存用默认值；停服时**不覆盖**坏文件 |
+| 21 | 未装客户端仍可用 | 纯服务端（客户端不装 mtrlock）跑 #1 / #6 / #18 / #19 | 保护与命令全部照常（方块保护是纯服务端逻辑） |
+| 22 | 编辑保护回归 | 重复旧场景 #3 / #6 / #13 / #14 | 编辑 / 删除拦截行为与 1.2.4 完全一致（两套保护共用 `PermissionChecker`，互不干扰） |
+
+### 11.3 本版「不做」的确认（应为放行，不是 bug）
+
+- **线路（route）**没有坐标 → 线路不参与方块保护。
+- **爆炸 / 活塞 / 火焰 / 水流 / 命令 / 其它模组**等间接改变方块 → 不受保护（本版范围明确限定）。
+- **网页 dashboard 直接改数据**：通常下一次 `sync`（任意对象增删改）或重启会自动纠正；
+  在没有任何 `sync` 的窗口期内改了范围，用 `/mtrlock protect rebuild` 立即纠正。
+
+### 11.4 日志关键字一览（1.3.0）
+
+```
+[mtrlock] 拦截 <UUID> 在 (<x>, <z>) 的方块破坏，保护对象: [station:<HEX>]
+[mtrlock] 拦截 <UUID> 在 (<x>, <z>) 的方块放置，保护对象: [depot:<HEX>]
+[mtrlock] 区域方块保护: 启用 (车站 保护 / 车厂 保护 / 扩张 0 格)     ← 配置加载
+[mtrlock] 加载保护配置失败，保留当前设置，后续 save 将跳过: <path>   ← 坏文件
+[mtrlock] 上次加载保护配置失败，跳过保存以避免覆盖损坏文件: <path>   ← 坏文件 + 停服
+[mtrlock] 保护范围过大，跳过空间索引: <objectRange> (NxM chunks)     ← 安全阀（正常不会出现）
+```
+
+### 11.5 快速排查
+
+| 现象 | 先查 |
+|---|---|
+| 范围内破坏没被拦 | `/mtrlock protect status` 看 `enabled` / `protectStations|Depots`；确认该对象在 `ownership.json` 里有归属记录；确认刚重启过且索引对象数 > 0（否则执行 `/mtrlock protect rebuild`） |
+| 范围外也被拦 | 检查 `expandBlocks` 是否设大了；用 F3 核对对象矩形的两个对角点 |
+| 重启后不保护 | 看启动日志里配置是否加载成功；`/mtrlock protect status` 的「服务端数据」是否「已就绪」；必要时 `/mtrlock protect rebuild` |
+| 放置拦不住 | 确认是「手持方块右键放置」，且 `UseBlockCallback` 未被其它模组取消；本版不覆盖发射器 / 活塞等间接放置 |
+| 提示没出现 | `notifyPlayer=false`；或客户端未装 mtrlock（服务端聊天栏仍会有红字） |

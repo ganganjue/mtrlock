@@ -13,6 +13,11 @@
 - **管理员豁免**：OP 权限等级 ≥ 3 直接放行。
 - **客户端预判（功能 6）**：MTR 客户端发包前先本地判定，拒绝时不发包，避免本地“乐观更新”造成世界内视觉不一致。
 - **坏文件保护**：`ownership.json` 损坏时不会被空数据覆盖；删除成功后自动清理归属记录。
+- **区域方块保护（1.3.0）**：**车站 / 车厂矩形范围内**的方块破坏与放置，按该对象的归属权保护。
+  - 创建者、对象分享给的团队成员、OP 3+ 可正常破坏 / 放置，其余玩家被拒绝并提示；
+  - **站台 / 侧线所在位置随父车站 / 车厂矩形自动覆盖**，不单独处理；
+  - 纯服务端判定，客户端拦截行为不变；**未装客户端同样生效**；
+  - 开关 / 范围扩张见 `config/mtrperm/protection.properties`，管理命令 `/mtrlock protect ...`。
 
 - **团队系统**：玩家可创建 / 加入最多 3 个团队，把对象的编辑权限分享给团队成员。
   - 团队命令：`/team create|apply|accept|invite|join|leave|kick|transfer|disband|...`（共 13 个）
@@ -57,7 +62,7 @@
 | Fabric API | 0.92.12+1.20.1 |
 | MTR (Minecraft Transit Railway) | >= 4.0.0（`FABRIC-4.0.0+1.20.1`） |
 | Java | 17+ |
-| 本模组 | mtrlock 1.2.4 |
+| 本模组 | mtrlock 1.3.0 |
 
 > StyledChat（`styledchat`）/ StyledPlayerList（`styledplayerlist`）是**可选**模组。
 > 装了它们时 mtrlock 改用 Placeholder API 暴露前缀（详见“与 StyledChat / StyledPlayerList 共存”），
@@ -69,7 +74,7 @@
 
 1. 安装 Fabric Loader（1.20.1）。
 2. 把以下 jar 放进 `mods/`：
-   - `mtrlock-1.2.4.jar`
+   - `mtrlock-1.3.0.jar`
    - `fabric-api-0.92.12+1.20.1.jar`
    - `minecraft-transit-railway-FABRIC-4.0.0+1.20.1.jar`
 3. 启动一次服务端，会生成 `config/mtrperm/ownership.json`。
@@ -81,6 +86,8 @@
 - 非创建者操作时：
   - **客户端**（MTR GUI）：快捷栏提示 `你没有权限编辑此对象` / `你没有权限删除此对象`，且不发包；
   - **服务端**：聊天栏同样提示，并拒绝操作。
+- **区域方块保护（1.3.0）**：在别人的车站 / 车厂矩形里破坏或放置方块会被拒绝并提示；
+  自己创建的对象、分享给的团队、OP 3+ 不受影响。详见下方「区域方块保护（1.3.0）」。
 
 ## 图形界面（GUI）与权限
 
@@ -94,6 +101,45 @@
 - 客户端发包前**不做乐观更新**；操作后等服务端 `GuiActionResultS2C` 与全量快照。
 - 未安装 mtrlock 客户端时命令入口仍可用，GUI 入口提示需要安装客户端。
 - 新增 GUI 通道带协议版本号；客户端 / 服务端版本不匹配时拒绝并提示。
+
+## 区域方块保护（1.3.0）
+
+在 **车站 / 车厂矩形范围内**，方块的破坏与放置按该对象的归属权保护：创建者、对象分享给的团队成员、
+OP 3+ 可正常操作，其余玩家被拒绝并收到提示。**站台 / 侧线没有独立坐标，随父车站 / 车厂矩形自动覆盖。**
+判定完全复用编辑 / 删除保护的那套 `PermissionChecker`（不新增权限体系），并且**只在服务端做权威判定**——
+客户端拦截行为不变，未安装客户端的玩家同样受保护。
+
+- 范围取车站 / 车厂的矩形；MTR 的 y 恒为 `Long.MIN_VALUE / Long.MAX_VALUE`（不限高度），
+  所以保护的是**整个高度**。
+- 无归属记录的对象（模组安装前 / 网页创建）**fail-open**，不保护。
+- 多个矩形重叠时「**任一覆盖对象拒绝即拒绝**」（避免用自有小车厂覆盖进别人的车站来绕过）。
+- `expandBlocks > 0` 时范围向四周扩张（例如把围墙也算进去）。
+
+### 配置：`config/mtrperm/protection.properties`
+
+```properties
+enabled=true            # 总开关
+protectStations=true    # 保护车站矩形
+protectDepots=true      # 保护车厂矩形
+expandBlocks=0          # 范围向外扩张的方块数（0-256）
+notifyPlayer=true       # 拒绝时给玩家发提示
+```
+
+- 修改后用 `/mtrlock protect reload` 立即生效，或重启服务器。
+- **文件损坏时**保留当前内存设置、且**不会覆盖坏文件**；单个键写错只回退该键的默认值。
+
+### 命令（OP 权限等级 3+）
+
+| 命令 | 说明 |
+|---|---|
+| `/mtrlock protect status` | 查看保护开关、范围扩张、索引规模与数据是否就绪 |
+| `/mtrlock protect reload` | 重新读取 `protection.properties` 并重建索引 |
+| `/mtrlock protect rebuild` | 从当前存档（MTR 数据）重建索引，用于网页 dashboard 直改数据后的手动兜底 |
+
+### 索引重建时机
+
+服务器**重启后索引会自动重建**（挂在 MTR 的 `Data#sync()` 上，此时存档数据已加载完成），无需手动操作；
+对象创建 / 修改 / 删除时也会同步维护。`/mtrlock protect rebuild` 只是应对「网页直接改数据」的兜底。
 
 ## 配置文件
 
@@ -194,6 +240,13 @@ mtrlock 启动时会检测服务器是否装了 **StyledChat**（mod id `styledc
   但**命令、聊天栏、tab、头顶名字、Placeholder 均不受影响**（`sync_ownership` 的颜色表是
   可被旧客户端忽略的兼容尾段）。
 - **称号颜色只影响样式**：不改优先级、不影响团队前缀选择；颜色区在 1.2.4 已生效。
+
+- **区域方块保护只覆盖“直接破坏 / 放置”**：爆炸、活塞、火焰、水流、命令或其它模组等**间接**改变方块
+  本版不保护（功能范围明确限定，留后续版本）。
+- **线路（route）没有坐标**，不参与区域方块保护；站台 / 侧线随父对象矩形覆盖，也不单独保护。
+- **网页 dashboard 直接改数据**时，MTR 的 `Data#sync()` 通常会在下一次数据操作或重启时把索引纠正过来；
+  若在没有任何 `sync` 触发的窗口期内改了范围，可用 `/mtrlock protect rebuild` 立即纠正。
+- **车站 / 车厂被 MTR 之外的方式删除**（例如直接改存档文件）时，索引要等下一次 `sync` 或重启才收敛。
 - **`titles.json` 在 1.2.4 升级为 `{"uuid": {"text": "...", "color": "#rrggbb"}}`**：
   旧的 `{"uuid": "称呼"}` 仍能正常读取（`color = null`），坏文件保护 / `loadFailed` 策略不变。
 

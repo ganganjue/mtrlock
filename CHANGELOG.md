@@ -3,6 +3,42 @@
 mtrlock（MTR 线路 / 车站 / 车厂权限模组）的版本变更记录。
 版本号以 `gradle.properties` 的 `version` 为准，构建产物为 `build/libs/mtrlock-<version>.jar`（已 remap）。
 
+## [1.3.0]
+
+主题「区域方块保护」：把归属权从「MTR 对象的编辑 / 删除」扩展到「对象范围内的方块破坏与放置」。
+**归属数据格式零改动**，权限判定完全复用现有 `PermissionChecker`，不新增权限体系。
+
+- **车站矩形范围内的方块破坏 / 放置拦截**：范围取 MTR `Station` 的矩形
+  （`AreaBase.getMinX/getMaxX/getMinZ/getMaxZ`，内部已是 `Math.min/max` 归一化）。
+  车站 / 车厂的 y 恒为 `Long.MIN_VALUE / Long.MAX_VALUE`（表示不限高度），因此**忽略 y 维度**。
+- **车厂矩形范围内同样保护**；**站台 / 侧线没有独立坐标**，随父车站 / 车厂矩形自动覆盖，不单独处理。
+- **权限复用**：与编辑 / 删除保护同一套判定——创建者本人、对象分享到的团队成员、OP 3+ 放行，其余拒绝。
+  无归属记录（模组安装前 / 网页创建）**fail-open 放行**。多个对象矩形重叠时采用
+  「**任一覆盖对象拒绝即拒绝**」，避免用自有小车厂覆盖进别人的车站来绕过保护。
+- **服务端权威**：`PlayerBlockBreakEvents.BEFORE`（破坏）与 `UseBlockCallback`（放置）都在服务端判定并取消，
+  客户端拦截行为不变；**未安装客户端的玩家同样受保护**，命令也仍可用。
+  放置用 `ItemPlacementContext.canPlace()/getBlockPos()` 精确定位「真正会放下的方块」，
+  只处理手持 `BlockItem` 的交互，不会误伤开箱子等正常操作；判定异常 fail-open。
+- **空间索引 `SpatialIndex`**：按 chunk 索引（`Map<chunkKey, List<ObjectRange>>`），
+  查询只遍历所在 chunk，不随车站 / 车厂总数线性扫描。chunk 键为
+  `((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL)`（负数先转 `long`，符号扩展不会造成键碰撞）。
+  写入幂等：同一 objectId 改名 / 改色 / 改范围只保留最后一次范围，不累加。
+- **索引维护（三处，冗余是刻意的）**：
+  - `Data#sync()` RETURN —— MTR 自己的「数据一致」时刻；`Simulator` 构造函数在 FileLoader 全部读完
+    （内部 `Future.get()` 阻塞汇合）之后才调用，**重启后索引自动重建，不会保护失效**；
+  - `UpdateDataRequest#update()` RETURN —— 新建对象归属刚落库，再补一次；
+  - 删除钩子 —— `remove(objectId)`，删除立即失效（删除侧只有 id，无需坐标）。
+- **配置** `config/mtrperm/protection.properties`：`enabled` / `protectStations` / `protectDepots` /
+  `expandBlocks` / `notifyPlayer`。坏文件保护与其它数据类一致（加载失败置 `loadFailed`、`save` 跳过），
+  单个键值非法只回退该键的默认值。
+- **命令（OP 3+）**：`/mtrlock protect status`（配置 + 索引规模）、`/mtrlock protect reload`
+  （重读配置并重建索引）、`/mtrlock protect rebuild`（从当前存档重建索引）。
+- **本版不做（留后续版本）**：线路保护（无坐标）、爆炸 / 活塞 / 火焰 / 水流等间接破坏、
+  保护范围可视化、网页 dashboard 创建对象的归属。
+- **测试**：新增 `ObjectRange` / `SpatialIndex` / `ProtectionRanges` / `ProtectionConfig` /
+  `BlockProtection` 权限矩阵 / 与现有编辑保护共存 等测试（**328 → 413**，全绿）。
+- **Java target**：仍为 Java 17（`options.release = 17`，`sourceCompatibility` / `targetCompatibility = 17`）。
+
 ## [1.2.4]
 
 在 1.2.3 的统一称号 GUI 内**激活颜色功能**；不改 GUI 结构、命令全部保留、数据语义不变。
