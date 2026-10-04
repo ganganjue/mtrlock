@@ -48,7 +48,7 @@ mtrlock（MTR 线路 / 车站 / 车厂权限模组）的版本变更记录。
   所以 `removed_refs.json` 是这些引用的唯一恢复源；加回的站台**追加到线路末尾，不还原原始站序**；
   反向索引 / 车厂路径缓存会**滞后一个 sync 周期**。
 - **测试**：新增 `RemovedRefsData` / `RouteRefReconciler`（真实 MTR `ClientData` + `sync()` 夹具）/
-  `canEdit(UUID,...)` 权限矩阵 / `RefsNotices` / `RefsCommand` 等测试（**413 → 478**，全绿）。
+  `canEdit(UUID,...)` 权限矩阵 / `RefsNotices` / `RefsCommand` 等测试（**413 → 479**，全绿）。
 - **Java target**：仍为 Java 17（`options.release = 17`，`sourceCompatibility` / `targetCompatibility = 17`）。
 
 ## [1.3.0]

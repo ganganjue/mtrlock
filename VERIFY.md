@@ -630,7 +630,7 @@ ls build/test-results/test/ | grep -E "ObjectRange|SpatialIndex|ProtectionRanges
 ### 12.1 构建、测试与 Java target
 
 ```bash
-./gradlew --offline test     # 478 个用例全过（1.3.0 为 413，本版 +65）
+./gradlew --offline test     # 479 个用例全过（1.3.0 为 413，本版 +66）
 ./gradlew --offline build    # 产物 build/libs/mtrlock-1.4.0.jar
 ```
 
