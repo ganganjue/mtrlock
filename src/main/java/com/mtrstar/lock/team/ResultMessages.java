@@ -122,6 +122,10 @@ public final class ResultMessages {
                 return "需要安装 mtrlock 客户端才能使用 GUI";
             case UNKNOWN_ACTION:
                 return "未知的 GUI 操作";
+
+            // 1.4.1：车厂操作被拒（%s = depot objectId，由调用方 String.format 填入）
+            case DEPOT_OPERATION_NO_PERMISSION:
+                return "你没有权限对车厂「%s」执行此操作";
             default:
                 return code.name();
         }

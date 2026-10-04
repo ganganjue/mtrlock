@@ -121,6 +121,7 @@
   "gui.mtrlock.result.color_invalid": "颜色非法：支持 16 原版色（&a / red 等）、#RRGGBB、&x&r&r&g&g&b&b",
   "gui.mtrlock.result.title_required": "该玩家还没有称号，请先设置称号文本再设置颜色",
   "gui.mtrlock.result.unknown_action": "未知的 GUI 操作",
+  "gui.mtrlock.result.depot_operation_no_permission": "你没有权限对车厂「%s」执行此操作",
   "mtrlock.protection.deny_break": "你不能在这里破坏方块：该区域属于其他玩家（或未对你开放）的车站 / 车厂",
   "mtrlock.protection.deny_place": "你不能在这里放置方块：该区域属于其他玩家（或未对你开放）的车站 / 车厂",
   "mtrlock.refs.removed_notice": "[mtrlock] 你引用的车站权限已被撤销，已临时移除相关站台：%s。恢复权限后会自动加回。",
