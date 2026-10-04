@@ -10,6 +10,7 @@ import org.mtr.core.data.Station;
 import org.mtr.mapping.holder.ServerPlayerEntity;
 
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * 权限判定工具（功能 4，纯服务端逻辑）。
@@ -63,6 +64,35 @@ public final class PermissionChecker {
         }
         return canEdit(objectId, player.getUuidAsString(), isAdmin(player),
                 OWNERSHIP, SHARES, MEMBERSHIPS);
+    }
+
+    /**
+     * 1.4.0 UUID 版三参重载：用于<b>离线 UUID</b> 的权限判定（线路引用对账用）。
+     *
+     * <p>与 {@link #canEdit(ServerPlayerEntity, String)} 完全同一套判定，唯一区别是
+     * {@code isAdmin} 由调用方给出——因为 OP 等级是在线玩家的实时属性，仅凭 UUID
+     * 推不出来。线路引用对账固定传 {@code false}（与「OP 不进快照」一致）：
+     * 非创建者的 OP 对 owner 的引用不构成「有权限」。</p>
+     *
+     * @param playerUuid 玩家 UUID；null → false
+     * @param objectId   对象 id；null / 空 → false
+     * @param isAdmin    是否管理员（对账场景固定 false）
+     * @return 能否编辑
+     */
+    public static boolean canEdit(UUID playerUuid, String objectId, boolean isAdmin) {
+        return canEdit(objectId, playerUuid == null ? null : playerUuid.toString(), isAdmin,
+                OWNERSHIP, SHARES, MEMBERSHIPS);
+    }
+
+    /**
+     * 1.4.0 UUID 版二参重载：不享受管理员豁免（{@code isAdmin = false}）。
+     *
+     * @param playerUuid 玩家 UUID；null → false
+     * @param objectId   对象 id；null / 空 → false
+     * @return 能否编辑
+     */
+    public static boolean canEdit(UUID playerUuid, String objectId) {
+        return canEdit(playerUuid, objectId, false);
     }
 
     /**
