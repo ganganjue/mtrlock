@@ -622,3 +622,96 @@ ls build/test-results/test/ | grep -E "ObjectRange|SpatialIndex|ProtectionRanges
 | 重启后不保护 | 看启动日志里配置是否加载成功；`/mtrlock protect status` 的「服务端数据」是否「已就绪」；必要时 `/mtrlock protect rebuild` |
 | 放置拦不住 | 确认是「手持方块右键放置」，且 `UseBlockCallback` 未被其它模组取消；本版不覆盖发射器 / 活塞等间接放置 |
 | 提示没出现 | `notifyPlayer=false`；或客户端未装 mtrlock（服务端聊天栏仍会有红字） |
+
+---
+
+## 12. 1.4.0 线路引用自动清理验证
+
+### 12.1 构建、测试与 Java target
+
+```bash
+./gradlew --offline test     # 478 个用例全过（1.3.0 为 413，本版 +65）
+./gradlew --offline build    # 产物 build/libs/mtrlock-1.4.0.jar
+```
+
+- Java target 仍为 17（`build.gradle` 的 `options.release = 17`、`sourceCompatibility` / `targetCompatibility`）。
+- 新增单测：`RemovedRefsDataTest`（持久化往返 / 坏文件 / loadFailed / 30 天清理 / 节流落盘 / 覆盖不追加）、
+  `RouteRefReconcilerTest`（真实 MTR `ClientData` + `sync()` 夹具：失权 / 恢复 / 无 owner / 孤儿 /
+  幽灵清理 / 多线路 / 横跳 / loadFailed）、`PermissionCheckerUuidEditTest`（UUID 重载与权限矩阵）、
+  `RefsNoticesTest`、`RefsCommandTest`。
+
+### 12.2 lang key 与注入点回归（可用 javap / jar 复核）
+
+```bash
+unzip -p build/libs/mtrlock-1.4.0.jar mtrlock.mixins.json
+# DataChildParentMixin 仍在列表里；本版没有新增 Mixin 类
+
+javap -p build/classes/java/main/com/mtrstar/lock/mixin/DataChildParentMixin.class | grep mtrlock
+# private void mtrlock$indexChildParents(CallbackInfo);
+# private void mtrlock$rebuildProtectionIndex(CallbackInfo);
+# private void mtrlock$reconcileRouteRefs(CallbackInfo);   ← 1.4.0 追加的第三个
+```
+
+- `DataChildParentMixin` 现在有**三个** `@Inject(method = "sync()V", at = @At("RETURN"))`：
+  `mtrlock$indexChildParents` / `mtrlock$rebuildProtectionIndex` / `mtrlock$reconcileRouteRefs`；
+  前两个的注解与描述符**未改动**。
+- 客户端 `ClientData` 也走这个注入点，但对账有 `instanceof Simulator` 守卫。
+
+### 12.3 场景清单（双客户端 + 服务端）
+
+准备：A、B 两个客户端；A 建车站 S，B 建线路 R 并引用 S 里的站台 P1（再放一个 B 自己的车站站台 P2 做对照）。
+
+| # | 步骤 | 预期 |
+|---|---|---|
+| 1 | A 把车站 S 分享给团队 T，B 在 T 里；B 用 P1 建线路 R | 正常：R 引用 P1 + P2；`removed_refs.json` 为空（或不存在） |
+| 2 | A 撤销对 T 的分享（或 B 退出 T），等下一次 `sync`（任何对象增删改 / 重新拉取数据都会触发） | R 的 `routePlatformData` 里 **P1 被移除**、P2 保留；`removed_refs.json` 出现 `route:...` → `{platformId: P1, stationObjectId: station:S}`；MTR 的线路界面里 R 少了一站 |
+| 3 | 提示 | **B 在线** → B 的聊天栏出现 `[mtrlock] 你引用的车站权限已被撤销…`（一次列全，不刷屏）；服务器日志有 `线路引用移除（owner 已失去站台权限）` |
+| 4 | A 重新分享给 T（或 B 重新加入 T），等下一次 `sync` | P1 **自动加回** R（会追加到线路末尾，不还原原站序）；账本记录被删除；B 聊天栏出现恢复提示；日志有 `线路引用恢复` |
+| 5 | 反复横跳：重复 #2 / #4 各 5 次 | 每次都能正确移除 / 加回；`removed_refs.json` 里同一 `(route, platform)` **始终只有一条记录**（覆盖不追加） |
+| 6 | 停机 → 重启服务器 | `removed_refs.json` 正常加载（日志 `已加载 N 条线路的 M 条引用移除记录`）；**未恢复的引用仍处于移除状态**，不会被自动加回 |
+| 7 | 关服 → 把 `removed_refs.json` 改成坏 JSON（如 `{ broken`）→ 开服 | 日志 `加载引用账本失败，本轮对账将跳过，后续 save 也将跳过`；**本轮对账不做任何移除**（已有引用保持原样）；停服时该坏文件**不被覆盖**；`/mtrlock refs status` 显示「上次加载失败」 |
+| 8 | 30 天清理：把某条记录的 `removedAt` 改成 31 天前 → 重启服务器 | 记录被清理（日志 `已清理 N 条超过 30 天的线路引用记录`）；该站台此后视为永久移除，权限恢复也不再自动加回 |
+| 9 | 坏数据 / 边界：手工把 `removedAt` 删掉（或写 0） | 按「未知时间」处理，**不清理** |
+| 10 | 无归属线路 | 手工删掉 `ownership.json` 里某线路条目并重启：该线路的引用**不做任何移除**（fail-open），日志无相关记录 |
+| 11 | 孤儿站台 / 车站已删 | 删掉车站 S（站台变成孤儿，`area == null`）：当前引用里的 P1 **fail-open 不被移除**；若 P1 此前已被移除过，则**保持移除**，记录留给 30 天清理；重建同名车站后站台换父车站时，旧记录会被清理 |
+| 12 | 命令权限 | 非 OP 执行 `/mtrlock refs status|list|restore` | 红字 `需要 OP 权限等级 3 才能使用该命令`，无副作用 |
+| 13 | 命令功能 | OP 执行 `status` / `list` / `list route:...` | `status` 显示条数 / 线路数 / 加载状态 / 文件路径 / 保留期限；`list` 逐条显示 platformId、父车站、移除时间，可按线路过滤 |
+| 14 | 手动恢复 | OP 执行 `/mtrlock refs restore route:<HEX> <platformId>` | 站台立即加回线路、账本记录删除并**立即落盘**（不必等 5 秒 debounce）；线路 / 站台 / 服务端数据不存在时明确报错、不做半截操作 |
+| 15 | 未装客户端仍可用 | 纯服务端（客户端不装 mtrlock）跑 #2 / #4 / #12 / #13 | 移除 / 加回与命令照常（对账是纯服务端逻辑）；聊天提示只在 owner 的**服务端**聊天栏出现 |
+| 16 | 编辑 / 删除保护回归 | 重复 1.3.0 的场景 #3 / #6 / #13 / #14 | 编辑 / 删除拦截行为与 1.3.0 完全一致（共用 `PermissionChecker`，UUID 重载不影响在线玩家路径） |
+| 17 | 区域方块保护回归 | 重复 1.3.0 的场景 #1 / #6 / #11 / #22 | 方块保护行为与 1.3.0 完全一致（第三个注入器与保护索引互不依赖） |
+
+### 12.4 本版「不做 / 刻意取舍」的确认（不是 bug）
+
+- **滞后一个 `sync` 周期**：移除发生在 `Data#sync()` 返回之后，`Platform.routes` / 车厂路径缓存
+  要等下一次 `sync` 才一致。设计上**不做守卫式二次 sync**。
+- **加回不还原站序**：加回的站台追加到线路末尾。
+- **OP 3+ 不算「有权限」**：owner 是离线 UUID，OP 等级推不出来；对账里管理员豁免固定关闭。
+  非创建者的 OP 对别人的线路引用**不参与判定**。
+- **GUI 本版不做**：只有命令 + 聊天提示 + 日志。
+- **网页 dashboard 直改数据**：会在下一次 `sync`（任意对象增删改 / 拉数据）自动收敛；
+  也可用 `/mtrlock refs restore` 手动纠正。
+
+### 12.5 日志关键字一览（1.4.0）
+
+```
+[mtrlock] 引用账本不存在（首次启动），按空账本处理: <path>
+[mtrlock] 已加载 N 条线路的 M 条引用移除记录
+[mtrlock] 加载引用账本失败，本轮对账将跳过，后续 save 也将跳过: <path>      ← 坏文件（WARN/ERROR）
+[mtrlock] 上次加载引用账本失败，跳过保存以避免覆盖损坏文件: <path>          ← 坏文件 + 落盘
+[mtrlock] 已清理 N 条超过 30 天的线路引用记录
+[mtrlock] 已保存 N 条线路的 M 条引用移除记录到 <path>                      ← 节流落盘
+[mtrlock] 线路引用移除（owner 已失去站台权限）: route:<HEX> → platform <id>
+[mtrlock] 线路引用恢复（owner 权限已恢复）: route:<HEX> → platform <id>
+[mtrlock] 线路引用记录清理（线路或站台已不存在）: route:<HEX> → platform <id>
+```
+
+### 12.6 快速排查
+
+| 现象 | 先查 |
+|---|---|
+| 失权后引用没被移除 | 该线路在 `ownership.json` 里有创建者记录吗（无归属 → fail-open 跳过）？站台的 `area` 是否为 null（孤儿 / 车站已删 → fail-open）？是否刚发生过一次 `sync`（可任意增删改一个对象或重开 dashboard 触发）？`removed_refs.json` 是否损坏（`loadFailed` 会整体跳过）？ |
+| 权限恢复后没加回 | 记录是否还在账本里（`/mtrlock refs list route:<HEX>`）？记录是否已超 30 天被清理？站台是否已从存档删除？ |
+| 聊天提示没出现 | owner 是否**在线**（离线只写日志）；语言文件是否加载（`zh_cn` / `en_us` 的 `mtrlock.refs.*`）；用 `/mtrlock refs status` 看账本 |
+| 账本文件不更新 | 节流是「变更后 5 秒或 10 次对账」；可用 `/mtrlock refs restore` 或正常停服触发落盘；坏文件时**永远不会**写盘（这是刻意的） |
+| 记录膨胀 | 同一 `(route, platform)` 是覆盖式记录；若发现同站台多条，检查 `platformId` 是否真的不同（站台被删后重建会拿到新 id） |

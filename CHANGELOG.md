@@ -3,6 +3,51 @@
 mtrlock（MTR 线路 / 车站 / 车厂权限模组）的版本变更记录。
 版本号以 `gradle.properties` 的 `version` 为准，构建产物为 `build/libs/mtrlock-<version>.jar`（已 remap）。
 
+## [1.4.0]
+
+主题「线路引用自动清理」：当线路 owner 对线路引用的某个站台失去权限时，
+把该站台从线路的 `routePlatformData` 里**临时移除**并记账；权限恢复后**自动加回**。
+**归属数据格式零改动**，权限判定完全复用 `PermissionChecker`，不新增权限体系。
+
+- **触发机制（只有一个注入点）**：挂在 MTR `Data#sync()` 的 **RETURN**——这是 MTR 自己的
+  「数据一致」时刻，覆盖加载、创建 / 编辑 / 删除、拉取数据、电梯生成等路径。
+  每次 sync 后做**全量对账**，不枚举失权路径；**接受「一个 sync 周期滞后」**，
+  不做守卫式二次 sync（不会递归进入自己的注入点）。
+- **owner 唯一来源 = `ownership.json` 的创建者 UUID**：MTR 4.0.0 / 4.0.5 的 `Route`
+  没有 owner 字段。**没有 owner 记录 → fail-open 跳过整条线路**。
+- **权限判定**：新增 `PermissionChecker.canEdit(UUID, String, boolean isAdmin)` 三参重载
+  （另提供二参版，等价 `isAdmin=false`）；现有 `canEdit(ServerPlayerEntity, String)`
+  签名与行为不变。离线 UUID 推不出 OP 等级，所以对账里 **`isAdmin` 固定 false**
+  （OP 3+ 不算「有权限」，与「OP 不进快照」一致）。
+- **平台 → 车站反查**：用运行时 `data.platformIdMap.get(platformId).area`
+  （`Platform.area` 由 MTR 在 sync 内部挂好），**不依赖 `ChildParents`，也不依赖同点注入器顺序**。
+  `platform == null`（站台已删）或 `area == null`（孤儿站台 / 车站已删）→ **fail-open 放行**。
+- **移除与加回**：`route.getRoutePlatforms()` 是活 `ObjectArrayList`，原地 `removeIf`；
+  加回用 `new RoutePlatformData(platformId)`。读 `platformId` 走 `rpd.getPlatform().getId()`
+  （sync RETURN 时已解析），**不需要新增 `@Accessor` Mixin、不新增 Mixin 类**：
+  在 `DataChildParentMixin` 追加**第三个** `@Inject(sync()V, RETURN)` → `mtrlock$reconcileRouteRefs`，
+  现有两个 `@Inject` 注解与描述符**未改**；`instanceof Simulator` 把客户端 `ClientData` 排除在外。
+- **持久化** `config/mtrperm/removed_refs.json`（**只新增这一个数据类，无快照文件**）：
+  `Map<String, RemovedRefEntry>`，每项 `{ platformId, stationObjectId, removedAt }`。
+  - **坏文件保护**：`loadFailed=true` → **本轮对账完全跳过，不做任何移除**，后续 save 也跳过，
+    绝不覆盖这份「唯一恢复源」；
+  - **首次启动且文件不存在** → 建空账本，本轮不会移除任何东西；
+  - **节流落盘**：变更后 **5 秒 debounce 或累计 10 次对账**先到先落，不每次 sync 都写盘；
+  - **覆盖不追加**：同一 (route, platform) 反复失权 / 恢复只保留一条记录，横跳不膨胀；
+  - **30 天清理**：启动时清理 `removedAt` 超过 30 天的记录（此后视为永久移除）。
+- **恢复与提示**：权限恢复 → **自动加回，不提示确认、不加冷却**；变更时给**在线 owner**
+  发聊天提示（`mtrlock.refs.removed_notice` / `mtrlock.refs.restored_notice`，一次列全不刷屏）
+  并写**服务器日志**逐条记录。**GUI 本版不做**。
+- **命令（OP 3+）**：`/mtrlock refs status`（条数 / 加载状态 / 文件路径 / 保留期限）、
+  `/mtrlock refs list [routeId]`（逐条列出 platformId / 父车站 / 移除时间）、
+  `/mtrlock refs restore <routeId> <platformId>`（手动加回并删记录，立即落盘）。
+- **已知取舍（写进 VERIFY）**：移除 / 加回会让线路变脏，MTR 会在 autosave 时写进存档，
+  所以 `removed_refs.json` 是这些引用的唯一恢复源；加回的站台**追加到线路末尾，不还原原始站序**；
+  反向索引 / 车厂路径缓存会**滞后一个 sync 周期**。
+- **测试**：新增 `RemovedRefsData` / `RouteRefReconciler`（真实 MTR `ClientData` + `sync()` 夹具）/
+  `canEdit(UUID,...)` 权限矩阵 / `RefsNotices` / `RefsCommand` 等测试（**413 → 478**，全绿）。
+- **Java target**：仍为 Java 17（`options.release = 17`，`sourceCompatibility` / `targetCompatibility = 17`）。
+
 ## [1.3.0]
 
 主题「区域方块保护」：把归属权从「MTR 对象的编辑 / 删除」扩展到「对象范围内的方块破坏与放置」。

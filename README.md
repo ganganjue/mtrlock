@@ -18,6 +18,13 @@
   - **站台 / 侧线所在位置随父车站 / 车厂矩形自动覆盖**，不单独处理；
   - 纯服务端判定，客户端拦截行为不变；**未装客户端同样生效**；
   - 开关 / 范围扩张见 `config/mtrperm/protection.properties`，管理命令 `/mtrlock protect ...`。
+- **线路引用自动清理（1.4.0）**：线路 owner 对线路引用的某个车站**失去权限**时，
+  该站台会从线路里**临时移除**并记入 `config/mtrperm/removed_refs.json`；
+  **权限恢复后自动加回**，不提示确认、不加冷却。
+  - owner 取 `ownership.json` 的创建者 UUID（MTR 的 `Route` 没有 owner 字段）；
+    没有归属记录的线路 **fail-open 跳过**；
+  - 每次 MTR `Data#sync()` 后全量对账（接受一个 sync 周期的滞后）；孤儿站台 / 车站已删 **fail-open**；
+  - 变更时给**在线 owner** 发聊天提示并写服务器日志；`/mtrlock refs status|list|restore`（OP 3+）可查 / 手动恢复。
 
 - **团队系统**：玩家可创建 / 加入最多 3 个团队，把对象的编辑权限分享给团队成员。
   - 团队命令：`/team create|apply|accept|invite|join|leave|kick|transfer|disband|...`（共 13 个）
@@ -62,7 +69,7 @@
 | Fabric API | 0.92.12+1.20.1 |
 | MTR (Minecraft Transit Railway) | >= 4.0.0（`FABRIC-4.0.0+1.20.1`） |
 | Java | 17+ |
-| 本模组 | mtrlock 1.3.0 |
+| 本模组 | mtrlock 1.4.0 |
 
 > StyledChat（`styledchat`）/ StyledPlayerList（`styledplayerlist`）是**可选**模组。
 > 装了它们时 mtrlock 改用 Placeholder API 暴露前缀（详见“与 StyledChat / StyledPlayerList 共存”），
@@ -74,7 +81,7 @@
 
 1. 安装 Fabric Loader（1.20.1）。
 2. 把以下 jar 放进 `mods/`：
-   - `mtrlock-1.3.0.jar`
+   - `mtrlock-1.4.0.jar`
    - `fabric-api-0.92.12+1.20.1.jar`
    - `minecraft-transit-railway-FABRIC-4.0.0+1.20.1.jar`
 3. 启动一次服务端，会生成 `config/mtrperm/ownership.json`。
@@ -88,6 +95,8 @@
   - **服务端**：聊天栏同样提示，并拒绝操作。
 - **区域方块保护（1.3.0）**：在别人的车站 / 车厂矩形里破坏或放置方块会被拒绝并提示；
   自己创建的对象、分享给的团队、OP 3+ 不受影响。详见下方「区域方块保护（1.3.0）」。
+- **线路引用自动清理（1.4.0）**：别人撤销对你的车站分享后，你线路里引用的那个站台会在下一次
+  `sync` 后自动移除（聊天栏 + 服务器日志有记录）；重新分享后自动加回。详见下方同名章节。
 
 ## 图形界面（GUI）与权限
 
@@ -140,6 +149,56 @@ notifyPlayer=true       # 拒绝时给玩家发提示
 
 服务器**重启后索引会自动重建**（挂在 MTR 的 `Data#sync()` 上，此时存档数据已加载完成），无需手动操作；
 对象创建 / 修改 / 删除时也会同步维护。`/mtrlock protect rebuild` 只是应对「网页直接改数据」的兜底。
+
+## 线路引用自动清理（1.4.0）
+
+**场景**：A 建了一个车站并分享给团队 T（或 B 本来就在 T 里），B 用这个站台建了一条线路；
+随后 A 撤销了分享 / B 退出了 T。此时 B 的线路仍然引用着 A 的车站站台，但 B 已经**没有权限编辑该车站**。
+
+**mtrlock 的处理**：在下一次 MTR `Data#sync()` 之后，把该站台从线路的 `routePlatformData` 里
+**临时移除**，并把这条引用记入 `config/mtrperm/removed_refs.json`。
+A 重新分享（或 B 重新加入团队）后，**下一次 sync 会自动把站台加回**，不提示确认、不加冷却。
+
+- **owner 判定**：线路 owner 取 `config/mtrperm/ownership.json` 里的创建者 UUID
+  （MTR 的 `Route` 没有 owner 字段）。**没有归属记录的线路 fail-open 跳过**，不做任何移除。
+- **权限判定**：与编辑 / 删除保护同一套 `PermissionChecker`（创建者本人、对象分享到的团队成员）。
+  **OP 3+ 不算「有权限」**：owner 是离线 UUID，OP 等级推不出来，所以对账里管理员豁免固定关闭。
+- **fail-open 的情况**（不判定为失权）：孤儿站台（`Platform.area == null`，车站已删或几何不匹配）、
+  站台对象已从存档消失、线路没有归属记录。
+- **滞后一个 sync 周期**：移除发生在 sync 返回之后，所以 MTR 的反向索引 / 车厂路径缓存会晚一个周期才一致。
+  这是刻意取舍（不做守卫式二次 sync，避免递归）。
+- **加回不还原站序**：加回用 `new RoutePlatformData(platformId)` 追加到线路末尾。
+- **提示**：有变更时给**在线 owner** 发一条聊天提示（一次列出所有受影响线路），
+  并在服务器日志逐条记录；owner 不在线时只写日志。**本版不做 GUI。**
+- **账本损坏时**：`removed_refs.json` 解析失败会置 `loadFailed`，**本轮对账完全跳过、不做任何移除**，
+  且不会覆盖坏文件（这份账本是引用的唯一恢复源，MTR 会在 autosave 时把「少了一个站台」写进存档）。
+- **30 天清理**：启动时清理 `removedAt` 超过 30 天的记录，之后该站台视为永久移除。
+- **落盘节流**：变更后 5 秒 debounce 或累计 10 次对账落一次盘，不每次 `sync` 都写。
+
+### 命令（OP 权限等级 3+）
+
+| 命令 | 说明 |
+|---|---|
+| `/mtrlock refs status` | 账本记录数 / 涉及线路数 / 加载状态 / 文件路径 / 保留期限 |
+| `/mtrlock refs list [routeId]` | 列出被移除的引用（platformId、父车站、移除时间），可按线路过滤 |
+| `/mtrlock refs restore <routeId> <platformId>` | 手动把引用加回线路并删记录（立即落盘） |
+
+### 数据文件：`config/mtrperm/removed_refs.json`
+
+```json
+{
+  "route:0B0829457F350DE9": {
+    "routeId": "route:0B0829457F350DE9",
+    "refs": [
+      { "platformId": 123456789, "stationObjectId": "station:695F49B3A0810590", "removedAt": 1759500000000 }
+    ]
+  }
+}
+```
+
+- `removedAt` 为 epoch 毫秒，用于 30 天清理；`stationObjectId` 为 null 表示父车站已被删除。
+- 同一 `(route, platform)` **覆盖不追加**，反复失权 / 恢复不会让文件膨胀。
+- 手工改这个文件请在服务端关闭时进行；`/mtrlock refs restore` 是更安全的手动恢复方式。
 
 ## 配置文件
 
@@ -249,6 +308,14 @@ mtrlock 启动时会检测服务器是否装了 **StyledChat**（mod id `styledc
 - **车站 / 车厂被 MTR 之外的方式删除**（例如直接改存档文件）时，索引要等下一次 `sync` 或重启才收敛。
 - **`titles.json` 在 1.2.4 升级为 `{"uuid": {"text": "...", "color": "#rrggbb"}}`**：
   旧的 `{"uuid": "称呼"}` 仍能正常读取（`color = null`），坏文件保护 / `loadFailed` 策略不变。
+
+- **线路引用清理滞后一个 `sync` 周期**：移除发生在 `Data#sync()` 返回之后，
+  所以 MTR 的 `Platform.routes` / 车厂路径缓存会晚一个周期才一致（**刻意取舍**，不做二次 sync）。
+- **加回的站台追加到线路末尾**：不还原原始站序（MTR 侧没有为「临时移除」设计的原地插入点）。
+- **`removed_refs.json` 是这些引用的唯一恢复源**：文件损坏时本轮对账会整体跳过（不移除、不覆盖），
+  但若文件被手工删除，已经被移除的引用就只能靠 `/mtrlock refs` 的历史记录 / 手工加回恢复。
+- **30 天清理是单向的**：超过 30 天的记录会被清掉，此后该站台视为永久移除，不再自动加回。
+- **线路没有归属记录时不清理**：模组安装前创建 / 网页创建的线路 fail-open，保持原样。
 
 > 完整验证步骤与排查清单见仓库根目录的 `VERIFY.md`。
 
