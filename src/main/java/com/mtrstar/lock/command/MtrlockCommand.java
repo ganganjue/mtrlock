@@ -64,6 +64,8 @@ public final class MtrlockCommand {
                                         .executes(ctx -> gui(ctx, GuiType.TEAM)))
                                 .then(CommandManager.literal("title")
                                         .executes(ctx -> gui(ctx, GuiType.TITLE))))
+                        // 1.3.0：区域方块保护管理命令（OP 3+）
+                        .then(ProtectCommand.build())
         );
     }
 
@@ -190,8 +192,12 @@ public final class MtrlockCommand {
         return ServerGuiNetworking.openGui(player, type) ? 1 : 0;
     }
 
-    /** 命令层 OP 3+ 校验（非玩家 / 非 OP 打红字并返回 false）。 */
-    private static boolean requireAdmin(CommandContext<ServerCommandSource> ctx) {
+    /**
+     * 命令层 OP 3+ 校验（非玩家 / 非 OP 打红字并返回 false）。
+     *
+     * <p>包内可见：{@link ProtectCommand} 复用同一条校验，不重复实现。</p>
+     */
+    static boolean requireAdmin(CommandContext<ServerCommandSource> ctx) {
         final ServerPlayerEntity player = TeamCommand.requirePlayer(ctx);
         if (player == null) return false;
         if (!TeamCommand.isAdmin(player)) {
