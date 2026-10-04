@@ -77,6 +77,8 @@ public abstract class DataChildParentMixin {
         if (!((Object) this instanceof Simulator)) {
             return;
         }
-        ProtectionIndex.rebuildFrom((Data) (Object) this, 0);
+        final Data self = (Data) (Object) this;
+        ProtectionIndex.rememberServerData(self);
+        ProtectionIndex.rebuildFrom(self);
     }
 }

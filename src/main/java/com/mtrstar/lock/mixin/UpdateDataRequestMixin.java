@@ -98,7 +98,8 @@ public abstract class UpdateDataRequestMixin {
         // update() 内部的 Data.sync() 早于本方法执行，新建对象在那时还没有归属记录，
         // 所以必须在这里再补一次。与 Data#sync() 钩子里的重建是刻意的冗余：
         // 保证「归属落库前」和「归属落库后」两个时刻索引都被覆盖。
-        ProtectionIndex.rebuildFrom(data, 0);
+        ProtectionIndex.rememberServerData(data);
+        ProtectionIndex.rebuildFrom(data);
     }
 
     /** 把集合里所有对象的 long id 收成一个 Set，作为“调用前快照”。 */
