@@ -144,8 +144,19 @@ public final class RouteRefReconciler {
 
                 final Station station = parentStation(data, platformId);
                 if (station == null) {
-                    // 孤儿站台 / 无归属车站 / 车站已删（area == null）
-                    // → 当前引用一侧 fail-open，不移除；已被移除过的条目交给第二遍处理。
+                    // 父车站拿不到：
+                    //  - 站台对象还在但 area == null → 所属车站已被删除（或几何不再匹配），
+                    //    设计上「视为失去权限」→ 自动移除并记一笔 stationObjectId=null 的账；
+                    //  - 站台对象已从 platformIdMap 消失（platform == null 时上面已跳过）同理。
+                    // 已被移除过的条目（账本里已有记录）交给第二遍保持移除，避免重复记账。
+                    if (removedRefs.hasRemoved(routeId, platformId)) {
+                        continue;
+                    }
+                    if (removePlatform(route, platformId)
+                            && removedRefs.recordRemoved(routeId, platformId, null)) {
+                        removed.add(ref);
+                        removedThisPass.add(ref);
+                    }
                     continue;
                 }
                 final String stationObjectId = RemovedRefsData.stationObjectId(station.getId());

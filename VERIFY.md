@@ -673,7 +673,8 @@ javap -p build/classes/java/main/com/mtrstar/lock/mixin/DataChildParentMixin.cla
 | 8 | 30 天清理：把某条记录的 `removedAt` 改成 31 天前 → 重启服务器 | 记录被清理（日志 `已清理 N 条超过 30 天的线路引用记录`）；该站台此后视为永久移除，权限恢复也不再自动加回 |
 | 9 | 坏数据 / 边界：手工把 `removedAt` 删掉（或写 0） | 按「未知时间」处理，**不清理** |
 | 10 | 无归属线路 | 手工删掉 `ownership.json` 里某线路条目并重启：该线路的引用**不做任何移除**（fail-open），日志无相关记录 |
-| 11 | 孤儿站台 / 车站已删 | 删掉车站 S（站台变成孤儿，`area == null`）：当前引用里的 P1 **fail-open 不被移除**；若 P1 此前已被移除过，则**保持移除**，记录留给 30 天清理；重建同名车站后站台换父车站时，旧记录会被清理 |
+| 11 | 车站已删（孤儿站台） | 删掉车站 S（站台变成孤儿，`area == null`）：引用里的 P1 **被自动移除**并记一笔 `stationObjectId = null` 的账（视为失去权限）；若 P1 此前已有记录，则**保持移除、不重复记账**；重建车站后可用 `/mtrlock refs restore` 加回 / 等 30 天清理 |
+| 11b | 站台对象已从存档消失 | 删掉站台本身：MTR 自己的 `sync` 会剪掉该条目，对账**不产生任何改动**、不记账（fail-open） |
 | 12 | 命令权限 | 非 OP 执行 `/mtrlock refs status|list|restore` | 红字 `需要 OP 权限等级 3 才能使用该命令`，无副作用 |
 | 13 | 命令功能 | OP 执行 `status` / `list` / `list route:...` | `status` 显示条数 / 线路数 / 加载状态 / 文件路径 / 保留期限；`list` 逐条显示 platformId、父车站、移除时间，可按线路过滤 |
 | 14 | 手动恢复 | OP 执行 `/mtrlock refs restore route:<HEX> <platformId>` | 站台立即加回线路、账本记录删除并**立即落盘**（不必等 5 秒 debounce）；线路 / 站台 / 服务端数据不存在时明确报错、不做半截操作 |

@@ -328,8 +328,8 @@ class RouteRefReconcilerTest {
     }
 
     @Test
-    @DisplayName("孤儿站台（area == null，车站已删）→ 当前引用 fail-open，不误移除")
-    void orphanPlatformIsFailOpenOnCurrentRefs() {
+    @DisplayName("车站被删除（area == null）→ 视为失去权限，自动移除并记一笔 stationObjectId=null")
+    void deletedStationRemovesReference() {
         // 删除车站：sync 会把 platform.area 清空，站台本身还在
         data.stations.remove(stationA);
         data.sync();
@@ -338,9 +338,32 @@ class RouteRefReconcilerTest {
 
         final RouteRefReconciler.Result result = reconcile();
 
-        assertFalse(result.changed());
-        assertEquals(2, route.getRoutePlatforms().size(), "孤儿站台不参与判定");
-        assertEquals(0, removedRefs.size());
+        assertEquals(1, result.removed().size(), "车站已删的引用应被移除: " + result);
+        assertEquals(new RouteRefReconciler.Ref(routeId, platform1.getId()), result.removed().get(0));
+        assertEquals(List.of(platform2.getId()), referencedPlatformIds(), "p2 所属车站还在，不受影响");
+        assertTrue(removedRefs.hasRemoved(routeId, platform1.getId()));
+        assertNull(removedRefs.getRemoved(routeId).get(0).stationObjectId,
+                "父车站已删，记录 stationObjectId=null");
+    }
+
+    @Test
+    @DisplayName("车站已删：账本里已有记录的引用不重复记账，保持移除")
+    void deletedStationKeepsExistingRecordWithoutDuplicating() {
+        // 先因权限失权被移除并记账（父车站还在）
+        revoke(OWNER_A, stationAId);
+        reconcile();
+        assertEquals(1, removedRefs.size());
+
+        // 再删掉车站 → 记录不能被重复追加 / 改成 null（保持原有信息）
+        data.stations.remove(stationA);
+        data.sync();
+        final RouteRefReconciler.Result result = reconcile();
+
+        assertTrue(result.removed().isEmpty(), "已有记录的引用不再重复移除: " + result);
+        assertEquals(1, removedRefs.size());
+        assertEquals(stationAId, removedRefs.getRemoved(routeId).get(0).stationObjectId,
+                "原记录信息保留，等待 30 天清理 / 手动 restore");
+        assertNotReferences(platform1.getId());
     }
 
     @Test

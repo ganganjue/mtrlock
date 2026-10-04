@@ -21,7 +21,10 @@ mtrlock（MTR 线路 / 车站 / 车厂权限模组）的版本变更记录。
   （OP 3+ 不算「有权限」，与「OP 不进快照」一致）。
 - **平台 → 车站反查**：用运行时 `data.platformIdMap.get(platformId).area`
   （`Platform.area` 由 MTR 在 sync 内部挂好），**不依赖 `ChildParents`，也不依赖同点注入器顺序**。
-  `platform == null`（站台已删）或 `area == null`（孤儿站台 / 车站已删）→ **fail-open 放行**。
+  - `platform == null`（站台对象已从存档消失）→ **fail-open 放行**（不属于权限问题）；
+  - `area == null`（所属**车站已被删除**，站台成孤儿）→ 按设计**「视为失去权限」自动移除**，
+    并记一笔 `stationObjectId = null` 的账；该记录会保留到 30 天清理或手动 restore；
+  - 账本里**已有记录**的引用不再重复判定 / 重复记账，保持移除状态。
 - **移除与加回**：`route.getRoutePlatforms()` 是活 `ObjectArrayList`，原地 `removeIf`；
   加回用 `new RoutePlatformData(platformId)`。读 `platformId` 走 `rpd.getPlatform().getId()`
   （sync RETURN 时已解析），**不需要新增 `@Accessor` Mixin、不新增 Mixin 类**：
