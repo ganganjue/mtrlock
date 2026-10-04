@@ -25,6 +25,9 @@
     没有归属记录的线路 **fail-open 跳过**；
   - 每次 MTR `Data#sync()` 后全量对账（接受一个 sync 周期的滞后）；孤儿站台 / 车站已删 **fail-open**；
   - 变更时给**在线 owner** 发聊天提示并写服务器日志；`/mtrlock refs status|list|restore`（OP 3+）可查 / 手动恢复。
+- **车厂操作保护（1.4.1）**：非归属者对**别人的车厂**点「生成列车 / 即时部署 / 清空车辆」会被拒绝
+  （聊天栏提示 + 服务器日志），与编辑 / 删除同一套判定：创建者 / 对象分享到的团队成员 / OP 3+ 放行，
+  无归属记录 fail-open。开关见 `protection.properties` 的 `protectDepotOperations`（默认 `true`）。
 
 - **团队系统**：玩家可创建 / 加入最多 3 个团队，把对象的编辑权限分享给团队成员。
   - 团队命令：`/team create|apply|accept|invite|join|leave|kick|transfer|disband|...`（共 13 个）
@@ -69,7 +72,7 @@
 | Fabric API | 0.92.12+1.20.1 |
 | MTR (Minecraft Transit Railway) | >= 4.0.0（`FABRIC-4.0.0+1.20.1`） |
 | Java | 17+ |
-| 本模组 | mtrlock 1.4.0 |
+| 本模组 | mtrlock 1.4.1 |
 
 > StyledChat（`styledchat`）/ StyledPlayerList（`styledplayerlist`）是**可选**模组。
 > 装了它们时 mtrlock 改用 Placeholder API 暴露前缀（详见“与 StyledChat / StyledPlayerList 共存”），
@@ -81,7 +84,7 @@
 
 1. 安装 Fabric Loader（1.20.1）。
 2. 把以下 jar 放进 `mods/`：
-   - `mtrlock-1.4.0.jar`
+   - `mtrlock-1.4.1.jar`
    - `fabric-api-0.92.12+1.20.1.jar`
    - `minecraft-transit-railway-FABRIC-4.0.0+1.20.1.jar`
 3. 启动一次服务端，会生成 `config/mtrperm/ownership.json`。
@@ -132,6 +135,7 @@ protectStations=true    # 保护车站矩形
 protectDepots=true      # 保护车厂矩形
 expandBlocks=0          # 范围向外扩张的方块数（0-256）
 notifyPlayer=true       # 拒绝时给玩家发提示
+protectDepotOperations=true  # 1.4.1：拦截别人的车厂操作（生成列车 / 即时部署 / 清空车辆）
 ```
 
 - 修改后用 `/mtrlock protect reload` 立即生效，或重启服务器。
@@ -201,6 +205,30 @@ A 重新分享（或 B 重新加入团队）后，**下一次 sync 会自动把�
 - `removedAt` 为 epoch 毫秒，用于 30 天清理；`stationObjectId` 为 null 表示父车站已被删除。
 - 同一 `(route, platform)` **覆盖不追加**，反复失权 / 恢复不会让文件膨胀。
 - 手工改这个文件请在服务端关闭时进行；`/mtrlock refs restore` 是更安全的手动恢复方式。
+
+## 车厂操作保护（1.4.1）
+
+**场景**：B（非 OP、也不是车厂创建者）打开别人的车厂界面，点「生成列车 / 即时部署 / 清空车辆」，
+1.4.0 之前 mtrlock 不拦这些操作——删除车厂会被拒，但"生成列车"能成功。
+
+**1.4.1 的处理**：在服务端包入口
+（`PacketRequestResponseBase#runServerOutbound`）拦下三个车厂操作包，按**车厂自身的归属**判定：
+
+| 操作 | 包 |
+|---|---|
+| 生成列车 | `PacketDepotGenerate`（`generate_by_depot_ids`） |
+| 即时部署 | `PacketDepotInstantDeploy`（`instant_deploy_by_depot_ids`） |
+| 清空车辆 | `PacketDepotClear`（`clear_by_depot_ids`） |
+
+- **判定与编辑 / 删除完全一致**：创建者本人、对象分享到的团队成员、OP 3+ 放行；
+  **无归属记录的车厂 fail-open**（模组安装前 / 网页创建的车厂，和现有已知缺口同源）。
+- **整包拒绝**：一次请求里只要有一个车厂无权限，整个包就被取消（与编辑 / 删除的「任一被拒即整包拒」一致）。
+- **提示**：聊天栏提示**第一个**无权限的车厂（`你没有权限对车厂「depot:<HEX>」执行此操作`），
+  服务器日志记 `拦截 <uuid> 的 PacketDepotGenerate 操作，权限不足: [depot:<HEX>]`。
+- **开关**：`config/mtrperm/protection.properties` 的 `protectDepotOperations`（默认 `true`）。
+  设为 `false` 后三个包直接放行（`/mtrlock protect reload` 或重启生效，`/mtrlock protect status` 可查看当前值）。
+- **不覆盖的路径**：网页 dashboard 与 MTR 自带命令走的是 `*_by_depot_name` / servlet 转发，
+  **没有玩家身份**，因此不受本保护约束（与 mtrlock 既有的「dashboard 不拦」立场一致）。
 
 ## 配置文件
 
@@ -318,6 +346,12 @@ mtrlock 启动时会检测服务器是否装了 **StyledChat**（mod id `styledc
   但若文件被手工删除，已经被移除的引用就只能靠 `/mtrlock refs` 的历史记录 / 手工加回恢复。
 - **30 天清理是单向的**：超过 30 天的记录会被清掉，此后该站台视为永久移除，不再自动加回。
 - **线路没有归属记录时不清理**：模组安装前创建 / 网页创建的线路 fail-open，保持原样。
+
+- **车厂操作保护只覆盖游戏内 GUI 的三个包**（1.4.1）：网页 dashboard 与 MTR 命令走
+  `generate_by_depot_name` / `instant_deploy_by_depot_name` / `clear_by_depot_name`（servlet / 命令，无玩家身份），
+  不受约束；**无归属记录的车厂**同样 fail-open（同编辑 / 删除的已知缺口）。
+- **车厂操作被拒时客户端没有错误回执**：这三个包的 `responseType` 是 `NONE`，
+  唯一反馈是 mtrlock 发的聊天消息；车厂界面可能短暂显示"生成中"。
 
 > 完整验证步骤与排查清单见仓库根目录的 `VERIFY.md`。
 

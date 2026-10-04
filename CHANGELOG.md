@@ -3,6 +3,39 @@
 mtrlock（MTR 线路 / 车站 / 车厂权限模组）的版本变更记录。
 版本号以 `gradle.properties` 的 `version` 为准，构建产物为 `build/libs/mtrlock-<version>.jar`（已 remap）。
 
+## [1.4.1]
+
+主题「车厂操作保护」：堵一个权限缺口——非归属者对**别人的车厂**点
+「生成列车 / 即时部署 / 清空车辆」时，1.4.0 及以前 mtrlock 不拦（删除车厂会被拦，生成不会）。
+**归属数据格式零改动**，权限判定完全复用 `PermissionChecker`，不新增权限体系。
+
+- **三个专用包**（载荷统一为 `{"depotIds":[<long>...]}`）：
+  `PacketDepotGenerate`（`generate_by_depot_ids`）、`PacketDepotInstantDeploy`
+  （`instant_deploy_by_depot_ids`）、`PacketDepotClear`（`clear_by_depot_ids`）。
+- **注入点不变**：仍挂在 `PacketRequestResponseBase#runServerOutbound(ServerWorld, ServerPlayerEntity)`
+  的 HEAD（`cancellable = true`，player 非空）——这是整条链路里唯一同时有玩家身份的地方；
+  请求会被 `Init.sendMessageC2S` 入队、在 `Simulator` 侧异步执行（`OperationProcessor` /
+  `DepotOperationByIds` / `Depot.generateDepots`），那时已经拿不到玩家，所以**只能在包入口拦**。
+  在现有 `PacketEditPermissionMixin` 里**追加 3 个分支**、共用 `mtrlock$checkDepotOperation(...)`：
+  **不新增 Mixin 类、不改注入点、不动现有 `PacketUpdateData` / `PacketDeleteData` 分支**。
+- **判定与编辑 / 删除完全一致**：创建者本人、对象分享到的团队成员、OP 3+ 放行；
+  **无归属记录 → fail-open**（模组安装前 / 网页创建的车厂，与既有已知缺口同源）。
+  新增 `PermissionGuard.findDeniedInDepotOperation(contentJson, creators, permission)` 承载纯逻辑。
+- **整包拒绝**：任一车厂无权限 → `ci.cancel()`；聊天栏提示**第一个**无权限的车厂
+  （新增 `ResultCode.DEPOT_OPERATION_NO_PERMISSION`，中文 `你没有权限对车厂「%s」执行此操作`，
+  `zh_cn` / `en_us` 各新增 `gui.mtrlock.result.depot_operation_no_permission`），
+  服务器日志沿用既有格式：`拦截 <uuid> 的 PacketDepotGenerate 操作，权限不足: [depot:<HEX>]`。
+- **开关**：`config/mtrperm/protection.properties` 新增 `protectDepotOperations=true`（默认开启）。
+  设为 `false` 时三个包**直接放行**（不判定、不提示、不记日志）；`/mtrlock protect status`
+  新增一行「车厂操作拦截（生成 / 即时部署 / 清空）：是/否」。老配置文件缺该键 → 默认开启。
+- **不覆盖的路径（有意为之）**：网页 dashboard / MTR 命令走 `*_by_depot_name` 与
+  `PacketForwardClientRequest` → servlet，**没有玩家身份**，与 mtrlock 既有「dashboard 不拦」立场一致。
+- **副作用说明**：三个包的 `responseType` 是 `NONE`，被拒时客户端没有错误回执，
+  唯一反馈是 mtrlock 的聊天消息（车厂界面可能短暂显示"生成中"）。
+- **测试**：新增 `PermissionGuard` 车厂操作矩阵（18）、`ResultCode` 文案 / 双语键 / 只增不改（5），
+  并扩展 `ProtectionConfigTest`（4）（**479 → 506**，全绿）。
+- **Java target**：仍为 Java 17（`options.release = 17`，`sourceCompatibility` / `targetCompatibility = 17`）。
+
 ## [1.4.0]
 
 主题「线路引用自动清理」：当线路 owner 对线路引用的某个站台失去权限时，

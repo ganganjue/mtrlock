@@ -716,3 +716,100 @@ javap -p build/classes/java/main/com/mtrstar/lock/mixin/DataChildParentMixin.cla
 | 聊天提示没出现 | owner 是否**在线**（离线只写日志）；语言文件是否加载（`zh_cn` / `en_us` 的 `mtrlock.refs.*`）；用 `/mtrlock refs status` 看账本 |
 | 账本文件不更新 | 节流是「变更后 5 秒或 10 次对账」；可用 `/mtrlock refs restore` 或正常停服触发落盘；坏文件时**永远不会**写盘（这是刻意的） |
 | 记录膨胀 | 同一 `(route, platform)` 是覆盖式记录；若发现同站台多条，检查 `platformId` 是否真的不同（站台被删后重建会拿到新 id） |
+
+---
+
+## 13. 1.4.1 车厂操作保护验证
+
+### 13.1 构建、测试与 Java target
+
+```bash
+./gradlew --offline test     # 506 个用例全过（1.4.0 为 479，本版 +27）
+./gradlew --offline build    # 产物 build/libs/mtrlock-1.4.1.jar
+```
+
+- Java target 仍为 17（`build.gradle` 的 `options.release = 17`、`sourceCompatibility` / `targetCompatibility`）。
+- 新增单测：`PermissionGuardDepotOperationTest`（三个包载荷一致 / 创建者 / 团队成员 / 分享对象 /
+  OP 3+ / 无归属 fail-open / 非授权 / 混合请求 / 多车厂顺序 / 重复 id / 其它键不影响 /
+  空数组 / 缺键 / 非数组 / 坏 JSON / null / 非法元素 / id→objectId）、
+  `DepotOperationResultCodeTest`（langKey / 中文格式化 / 失败码 / 双语键与 `%s` / 只增不改）、
+  `ProtectionConfigTest` 扩展（`protectDepotOperations` 默认与缺省 / 显式 false / 非法值回退 /
+  保存往返 / statusLines）。
+- `instanceof` 分支本身无法纯 JVM 测试（需要在 Minecraft 运行时），由下面的手工步骤覆盖。
+
+### 13.2 注入点回归（可 javap 复核）
+
+```bash
+javap -p build/classes/java/main/com/mtrstar/lock/mixin/PacketEditPermissionMixin.class | grep mtrlock
+# private void mtrlock$guardEditAndDelete(ServerWorld, ServerPlayerEntity, CallbackInfo);
+# private void mtrlock$checkDepotOperation(ServerPlayerEntity, PermissionGuard$EditPermission, CallbackInfo);
+
+unzip -p build/libs/mtrlock-1.4.1.jar com/mtrstar/lock/mixin/PacketEditPermissionMixin.class \
+  | grep -c PacketDepot       # 三个车厂包都被引用
+```
+
+- 注入点仍是 `runServerOutbound(ServerWorld, ServerPlayerEntity)` 的**唯一** `@Inject`（HEAD，`cancellable=true`）；
+  本版**没有新增 Mixin 类**，也没有改 `PacketUpdateData` / `PacketDeleteData` 分支。
+
+### 13.3 配置
+
+```properties
+# config/mtrperm/protection.properties
+protectDepotOperations=true   # 1.4.1，默认开启
+```
+
+- 改完用 `/mtrlock protect reload` 或重启生效；`/mtrlock protect status` 会显示
+  「车厂操作拦截（生成 / 即时部署 / 清空）：是/否」。
+- **老配置文件（1.3.0 / 1.4.0 生成）没有这个键 → 默认开启**（不需要手工补）。
+
+### 13.4 场景清单（双客户端 + 服务端）
+
+准备：A、B 两个客户端；A 建一个车厂 D（并配好线路 / 站台，能点「生成列车」）；B **不是 OP**、也不在 A 的团队里。
+
+| # | 步骤 | 预期 |
+|---|---|---|
+| 1 | A 自己点车厂界面的「生成列车」 | 正常：MTR 日志出现 `Starting path generation for ...`；mtrlock 无拦截日志 |
+| 2 | B 点 A 的车厂「生成列车」 | **被拒**：B 聊天栏出现 `你没有权限对车厂「depot:<HEX>」执行此操作`；服务器日志 `[mtrlock] 拦截 <B的UUID> 的 PacketDepotGenerate 操作，权限不足: [depot:<HEX>]`；MTR 日志**没有** `Starting path generation`（操作根本没入队） |
+| 3 | B 点「即时部署」 | 被拒，日志是 `PacketDepotInstantDeploy` |
+| 4 | B 点「清空车辆」 | 被拒，日志是 `PacketDepotClear` |
+| 5 | A 把车厂 D 分享给团队 T，B 加入 T，再点三个按钮 | **全部放行**（团队成员可编辑） |
+| 6 | 给 B 加 OP 3+（`op B`），对 A 的车厂再点三个按钮 | **全部放行**（管理员豁免） |
+| 7 | 手工删掉 `ownership.json` 里 D 的条目并重启；B 点「生成列车」 | **放行**（无归属记录 → fail-open，与编辑 / 删除一致） |
+| 8 | `protectDepotOperations=false` → `/mtrlock protect reload` → B 点三个按钮 | **全部放行**，且 mtrlock **不记拦截日志** |
+| 9 | 混合请求（B 对「自己有权限的车厂 + A 的车厂」各点一次，或一个包内含两个 depotId） | 整包被拒（只提示第一个无权限的车厂） |
+| 10 | 编辑 / 删除保护回归 | 重复 1.3.0 的 #3 / #6：B 编辑 / 删除 A 的车厂与车站 → 仍被拒，提示与 1.4.0 完全一致 |
+| 11 | 区域方块保护回归 | 重复 1.3.0 的 #1 / #6 / #11：行为不变 |
+| 12 | 线路引用回归 | 重复 1.4.0 第 12 章 #2 / #4：移除 / 加回行为不变 |
+| 13 | 未装客户端仍可用 | 纯服务端（客户端不装 mtrlock）跑 #1 / #2 / #5 | 拦截与放行照常（纯服务端逻辑），提示走服务端聊天栏 |
+
+### 13.5 本版「不做 / 刻意取舍」的确认（不是 bug）
+
+- **只拦游戏内 GUI 的三个包**：网页 dashboard / MTR 命令走
+  `generate_by_depot_name` / `instant_deploy_by_depot_name` / `clear_by_depot_name`
+  （`OperationProcessor` / servlet 转发，**无玩家身份**），不在本版范围内 ——
+  与 mtrlock 既有「网页 dashboard 不经过权限拦截」的立场一致。
+- **车厂操作被拒无客户端错误回执**：三个包的 `responseType = NONE`，唯一反馈是聊天消息；
+  车厂界面可能短暂显示"生成中"。
+- **无归属记录的车厂 fail-open**：同编辑 / 删除的既有缺口，本版不单独处理。
+- **允许 owner 时 `即时部署` 会快进模拟器时间最多 1 天**（MTR 自身为了立刻发车），这是正常副作用。
+
+### 13.6 日志关键字一览（1.4.1）
+
+```
+[mtrlock] 拦截 <UUID> 的 PacketDepotGenerate 操作，权限不足: [depot:<HEX>]
+[mtrlock] 拦截 <UUID> 的 PacketDepotInstantDeploy 操作，权限不足: [depot:<HEX>]
+[mtrlock] 拦截 <UUID> 的 PacketDepotClear 操作，权限不足: [depot:<HEX>]
+[mtrlock] 区域方块保护: 启用 (车站 保护 / 车厂 保护 / 扩张 0 格)     ← 配置加载（含新键）
+```
+
+未命中拦截时 MTR 自己的日志仍是：`Starting path generation for ...` / `Path generation complete for %s`。
+
+### 13.7 快速排查
+
+| 现象 | 先查 |
+|---|---|
+| B 点生成列车没被拦 | `/mtrlock protect status` 看「车厂操作拦截」是否为「是」；该车厂在 `ownership.json` 里有归属吗（无归属 → fail-open）；B 是否 OP 3+ 或团队成员 |
+| 聊天栏没有提示 | 提示只发给**操作者**；确认客户端连接正常；日志里有 `拦截 ... 权限不足` 说明判定已命中 |
+| A 自己也点不动了 | A 是否为该车厂创建者（`/mtrlock info depot:<HEX>` 查看创建者）；`ownership.json` 是否损坏（损坏时 fail-open，不会误拦） |
+| 关掉开关仍被拦 | 配置是否 reload / 重启；键名是否拼对（`protectDepotOperations`）；坏配置时该键回退默认值 `true` |
+| 网页 dashboard 仍能生成 | 预期行为（无玩家身份，不在本版范围） |
