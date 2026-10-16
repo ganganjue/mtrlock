@@ -21,6 +21,13 @@ jobs:
           distribution: 'microsoft'
       - name: make gradle wrapper executable
         run: chmod +x ./gradlew
+      - name: download compileOnly dependencies
+        run: |
+          mkdir -p recon
+          curl -L -f --retry 3 \
+            -o recon/axiom-6.1.3.jar \
+            "https://cdn.modrinth.com/data/N6n5dqoA/versions/ABgvvd3Y/Axiom-6.1.3-for-MC1.20.1.jar"
+          ls -lh recon/
       - name: build
         run: ./gradlew build
       - name: capture build artifacts
