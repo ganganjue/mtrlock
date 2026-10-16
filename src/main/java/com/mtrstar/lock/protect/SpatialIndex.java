@@ -6,8 +6,10 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 按 chunk 索引的空间索引（1.3.0 区域方块保护）。
@@ -67,6 +69,56 @@ public final class SpatialIndex {
      */
     public static long chunkKey(int chunkX, int chunkZ) {
         return ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
+    }
+
+    /**
+     * 查询与矩形 [minX,maxX] × [minZ,maxZ] 相交的所有保护范围（按 objectId 去重）。
+     *
+     * <p>复杂度 O(矩形覆盖的 chunk 数 + 命中的范围数)，而不是 O(矩形内方块数)。
+     * 供 /fill 这类大范围命令做保护预判。</p>
+     */
+    public List<ObjectRange> lookupArea(long minX, long maxX, long minZ, long maxZ) {
+        if (minX > maxX) {
+            final long swap = minX;
+            minX = maxX;
+            maxX = swap;
+        }
+        if (minZ > maxZ) {
+            final long swap = minZ;
+            minZ = maxZ;
+            maxZ = swap;
+        }
+
+        final Map<Long, List<ObjectRange>> snapshot = chunkIndex;
+        if (snapshot.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        final int minChunkX = chunkOf(minX);
+        final int maxChunkX = chunkOf(maxX);
+        final int minChunkZ = chunkOf(minZ);
+        final int maxChunkZ = chunkOf(maxZ);
+
+        final List<ObjectRange> result = new ArrayList<>();
+        final Set<String> seen = new HashSet<>();
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+            final long chunkXKey = ((long) chunkX) << 32;
+            for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
+                final List<ObjectRange> ranges = snapshot.get(chunkXKey | (chunkZ & 0xFFFFFFFFL));
+                if (ranges == null || ranges.isEmpty()) {
+                    continue;
+                }
+                for (ObjectRange range : ranges) {
+                    if (range == null || !seen.add(range.objectId())) {
+                        continue;
+                    }
+                    if (range.intersects(minX, maxX, minZ, maxZ)) {
+                        result.add(range);
+                    }
+                }
+            }
+        }
+        return result;
     }
 
     /** 方块坐标 (x,z) 对应的 chunk 键。 */

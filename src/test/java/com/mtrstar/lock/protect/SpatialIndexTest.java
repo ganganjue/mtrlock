@@ -299,4 +299,45 @@ class SpatialIndexTest {
         assertEquals(List.of(STATION_A), idsAt(index, 1024, -1024));
         assertTrue(index.lookup(1025, 0).isEmpty());
     }
+
+    // =====================================================================
+    // lookupArea：/fill 的 chunk 去重范围查询
+    // =====================================================================
+
+    @Test
+    @DisplayName("lookupArea：返回与矩形相交的对象，按 objectId 去重")
+    void lookupAreaIntersectsAndDedupes() {
+        final SpatialIndex index = new SpatialIndex();
+        index.put(ObjectRange.ofCorners(STATION_A, 0, 0, 10, 10));
+        index.put(ObjectRange.ofCorners(DEPOT_A, 50, 50, 60, 60));
+
+        final Set<String> hits = index.lookupArea(5, 55, 5, 55).stream()
+                .map(ObjectRange::objectId).collect(Collectors.toSet());
+        assertEquals(Set.of(STATION_A, DEPOT_A), hits);
+        assertTrue(index.lookupArea(100, 200, 100, 200).isEmpty());
+    }
+
+    @Test
+    @DisplayName("lookupArea：不因 chunk 相交而把只占 1 格的保护范围误判为整块命中")
+    void lookupAreaDoesNotFalsePositiveByChunk() {
+        final SpatialIndex index = new SpatialIndex();
+        index.put(ObjectRange.ofCorners(STATION_A, 0, 0, 0, 0));
+
+        assertTrue(index.lookupArea(1, 15, 1, 15).isEmpty());
+        assertEquals(List.of(STATION_A), index.lookupArea(0, 0, 0, 0).stream()
+                .map(ObjectRange::objectId).collect(Collectors.toList()));
+    }
+
+    @Test
+    @DisplayName("lookupArea：支持反向角点 / 跨 chunk / 空索引")
+    void lookupAreaNormalizesCorners() {
+        final SpatialIndex index = new SpatialIndex();
+        index.put(ObjectRange.ofCorners(STATION_A, 15, -1, 16, 0));
+
+        assertEquals(List.of(STATION_A), index.lookupArea(20, -20, 20, -20).stream()
+                .map(ObjectRange::objectId).collect(Collectors.toList()));
+        assertEquals(List.of(STATION_A), index.lookupArea(16, 16, 0, 0).stream()
+                .map(ObjectRange::objectId).collect(Collectors.toList()));
+        assertTrue(new SpatialIndex().lookupArea(0, 100, 0, 100).isEmpty());
+    }
 }

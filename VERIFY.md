@@ -15,7 +15,7 @@
 | Fabric Loader | 0.19.5（`gradle.properties` 同款；0.19.3+ 也可） |
 | Fabric API | 0.92.12+1.20.1 |
 | MTR (Minecraft Transit Railway) | FABRIC-4.0.0+1.20.1 |
-| 本模组 | build/libs/mtrlock-1.0.0.jar（自行 `./gradlew build` 产出） |
+| 本模组 | build/libs/mtrlock-1.4.2.jar（自行 `./gradlew build` 产出） |
 | Java | 17+（构建/运行服务端用 21 亦可） |
 
 服务端数据文件位置：
@@ -724,8 +724,8 @@ javap -p build/classes/java/main/com/mtrstar/lock/mixin/DataChildParentMixin.cla
 ### 13.1 构建、测试与 Java target
 
 ```bash
-./gradlew --offline test     # 506 个用例全过（1.4.0 为 479，本版 +27）
-./gradlew --offline build    # 产物 build/libs/mtrlock-1.4.1.jar
+./gradlew --offline test     # 518 个用例全过（1.4.2 新增 9）
+./gradlew --offline build    # 产物 build/libs/mtrlock-1.4.2.jar
 ```
 
 - Java target 仍为 17（`build.gradle` 的 `options.release = 17`、`sourceCompatibility` / `targetCompatibility`）。
@@ -744,7 +744,7 @@ javap -p build/classes/java/main/com/mtrstar/lock/mixin/PacketEditPermissionMixi
 # private void mtrlock$guardEditAndDelete(ServerWorld, ServerPlayerEntity, CallbackInfo);
 # private void mtrlock$checkDepotOperation(ServerPlayerEntity, PermissionGuard$EditPermission, CallbackInfo);
 
-unzip -p build/libs/mtrlock-1.4.1.jar com/mtrstar/lock/mixin/PacketEditPermissionMixin.class \
+unzip -p build/libs/mtrlock-1.4.2.jar com/mtrstar/lock/mixin/PacketEditPermissionMixin.class \
   | grep -c PacketDepot       # 三个车厂包都被引用
 ```
 
@@ -813,3 +813,109 @@ protectDepotOperations=true   # 1.4.1，默认开启
 | A 自己也点不动了 | A 是否为该车厂创建者（`/mtrlock info depot:<HEX>` 查看创建者）；`ownership.json` 是否损坏（损坏时 fail-open，不会误拦） |
 | 关掉开关仍被拦 | 配置是否 reload / 重启；键名是否拼对（`protectDepotOperations`）；坏配置时该键回退默认值 `true` |
 | 网页 dashboard 仍能生成 | 预期行为（无玩家身份，不在本版范围） |
+
+---
+
+## 14. 1.4.2 旁路封堵验证
+
+> 本环境只能执行 `./gradlew --offline test` / `build` 与 `javap`，**不能启动 Minecraft**。
+> 以下 in-game 步骤供 PC 环境验证。
+
+### 14.1 构建与单测
+
+```bash
+./gradlew --offline test     # 518 个用例全过（1.4.2 新增 9）
+./gradlew --offline build    # 产物 build/libs/mtrlock-1.4.2.jar
+```
+
+- Java target 仍为 17。
+- 新增 `PermissionGuardDepotOperationTest` 列表版 3 个用例。
+- `recon/axiom-6.1.3.jar` 仅 `compileOnly`，运行时必须由服务端自行安装 Axiom 才能触发对应拦截。
+
+### 14.2 注入点复核（javap）
+
+```bash
+# 新增 Mixin 类
+javap -p build/classes/java/main/com/mtrstar/lock/mixin/SetBlockCommandMixin.class | grep mtrlock
+javap -p build/classes/java/main/com/mtrstar/lock/mixin/FillCommandMixin.class | grep mtrlock
+javap -p build/classes/java/main/com/mtrstar/lock/mixin/PistonHandlerMixin.class | grep mtrlock
+javap -p build/classes/java/main/com/mtrstar/lock/mixin/ExplosionMixin.class | grep mtrlock
+javap -p build/classes/java/main/com/mtrstar/lock/mixin/MtrDepotCommandMixin.class | grep mtrlock
+
+# Axiom Mixin 需要在有 Axiom compileOnly 的情况下才能看到编译产物
+javap -p build/classes/java/main/com/mtrstar/lock/mixin/AxiomServerboundSetBlockMixin.class | grep mtrlock
+javap -p build/classes/java/main/com/mtrstar/lock/mixin/AxiomServerboundSetBufferMixin.class | grep mtrlock
+```
+
+启动服务端时建议加：
+
+```text
+-Dmixin.debug.verify=true
+-Dmixin.debug.countInjections=true
+```
+
+若未安装 Axiom，`AxiomServerboundSetBlockMixin` / `AxiomServerboundSetBufferMixin` 应因 `@Pseudo` 被跳过，
+不应导致启动失败。
+
+### 14.3 场景清单
+
+准备：A、B 两个客户端；A 建好一个车站 / 车厂矩形；B 非 OP、不在 A 团队内；另备管理员 Admin（OP 3+）。
+
+#### A. /setblock /fill
+
+| # | 步骤 | 预期 |
+|---|---|---|
+| 1 | B 在 A 的车站 / 车厂矩形内（含扩张范围）执行 `/setblock <pos> stone` | 被拒：B 聊天栏出现 `mtrlock.protection.deny_place`；命令失败；目标方块不变 |
+| 2 | B 在保护区外执行 `/setblock ...` | 正常成功 |
+| 3 | B 在保护区内执行 `/setblock ... air destroy` | 被拒：提示 `deny_break` |
+| 4 | B 用 `/fill` 跨保护区内 / 外区域填充 | 整条命令被拒，保护区内、外均不写 |
+| 5 | B 用超大 `/fill` 选区跨过保护范围 | 按 chunk 去重扫描；命中保护范围即整条取消，不逐方块遍历 |
+| 6 | Admin OP 3+ 重复 #1 / #4 / #5 | 放行 |
+| 7 | 命令方块 / 控制台执行 `/setblock` /fill | 放行（无玩家身份） |
+
+#### B. 活塞与 TNT
+
+| # | 步骤 | 预期 |
+|---|---|---|
+| 8 | B 用活塞推动 A 的保护区边缘方块 / 把方块推入保护区 | 整次活塞动作失败；moved/broken 列表命中即不再写方块 |
+| 9 | TNT 爆炸影响范围内含 A 的保护区域 | 整次爆炸不破坏任何方块；受影响列表被清空 |
+| 10 | TNT 爆炸在无归属区域 | 正常破坏（无归属 fail-open） |
+| 11 | 活塞 / 爆炸只影响无归属普通地面 | 正常生效 |
+
+#### C. MTR /mtr 车厂命令
+
+| # | 步骤 | 预期 |
+|---|---|---|
+| 12 | A 执行 `/mtr generatePath allDepots` / 对应命令 | 正常 |
+| 13 | B（非 OP、非团队成员）执行 `/mtr generatePath allDepots` 或按名称过滤 | 被拒，聊天栏提示无权限车厂；命令失败 |
+| 14 | B 执行 `clearVehicles` / `instantDeploy` 同类命令 | 同样被拒 |
+| 15 | A 把车厂分享给团队 T，B 加入 T 后执行 | 放行 |
+| 16 | 给 B OP 3+ 后执行 | 放行 |
+| 17 | B 执行查询类 / 非车厂命令 | 不受影响 |
+| 18 | `protectDepotOperations=false` → reload 后 B 执行 | 放行，不写拦截日志 |
+
+#### D. Axiom
+
+| # | 步骤 | 预期 |
+|---|---|---|
+| 19 | 服务端未安装 Axiom | 启动正常；Axiom mixin 不生效 |
+| 20 | 服务端安装 Axiom；B 用 Axiom 单块放置 / 破坏命中保护区 | 被拒（Axiom 自身 UseBlockCallback / PlayerBlockBreakEvents 或本版全目标 mixin 命中） |
+| 21 | B 用 Axiom 多目标 SetBlock / 批量 SetBuffer 跨保护区 | 任一目标命中且无权限 → 整包取消，所有目标均不写 |
+| 22 | B 用 Axiom 在无归属区域批量写 | 放行 |
+| 23 | Admin OP 3+ 用 Axiom 在保护区写 | 放行（Axiom 权限系统与 mtrlock admin 皆为高权限） |
+
+#### E. 水平多格方块
+
+| # | 步骤 | 预期 |
+|---|---|---|
+| 24 | B 在 A 的保护区边界水平放床：床脚在外、床头在内 | 被拒；床脚也不放下 |
+| 25 | B 在无归属区域放床 | 正常 |
+| 26 | B 放高草 / 门等垂直多格方块，主格在保护区外、上半格在保护区内（x/z 相同） | 原 2D 保护本身已覆盖，行为不变 |
+
+### 14.4 已知不覆盖
+
+- `/clone`、`/place`、`/structure`、自定义命令。
+- 火焰扩散、水流、其它模组直接写 `ChunkSection` / `World` 的路径。
+- 网页 dashboard 直接改 MTR 数据。
+- Axiom 未安装时，对应路径本身也不存在；安装后才由本版 mixin 拦截。
+- Axiom OP 等级 2+ 由 Axiom 权限系统放行；mtrlock 的区域保护只检查空间索引与玩家编辑权，不重新定义 Axiom 自身权限体系。

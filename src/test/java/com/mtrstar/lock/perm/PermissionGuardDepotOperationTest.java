@@ -258,6 +258,47 @@ class PermissionGuardDepotOperationTest {
         assertEquals(22, result.get(0).length(), "depot:(6) + 16 位十六进制");
     }
 
+    // =====================================================================
+    // 1.4.2：已经解析好的 objectId 列表版本（/mtr 命令路径复用）
+    // =====================================================================
+
+    private List<String> deniedIds(List<String> objectIds, String playerUuid, boolean admin) {
+        return PermissionGuard.findDeniedInDepotOperation(objectIds, creatorLookup(),
+                permission(playerUuid, admin));
+    }
+
+    @Test
+    @DisplayName("1.4.2 列表版：创建者 / 团队成员 / OP 3+ / 无归属 → 放行")
+    void listVersionAllowedCases() {
+        owners.put(KEY_OWNED, OWNER);
+        shares.put(KEY_OWNED, Set.of(TEAM));
+        members.put(TEAM, Set.of(TEAM_MEMBER));
+
+        assertEquals(List.of(), deniedIds(List.of(KEY_OWNED), OWNER, false));
+        assertEquals(List.of(), deniedIds(List.of(KEY_OWNED), TEAM_MEMBER, false));
+        assertEquals(List.of(), deniedIds(List.of(KEY_OWNED), OUTSIDER, true));
+        assertEquals(List.of(), deniedIds(List.of(KEY_NO_OWNER), OUTSIDER, false));
+    }
+
+    @Test
+    @DisplayName("1.4.2 列表版：非授权 → 列出无权限 objectId")
+    void listVersionDeniedCases() {
+        owners.put(KEY_OWNED, OWNER);
+        owners.put(KEY_OTHER, OWNER);
+        assertEquals(List.of(KEY_OWNED), deniedIds(List.of(KEY_OWNED), OUTSIDER, false));
+        assertEquals(List.of(KEY_OWNED, KEY_OTHER),
+                deniedIds(List.of(KEY_OWNED, KEY_OTHER), OUTSIDER, false));
+    }
+
+    @Test
+    @DisplayName("1.4.2 列表版：null / 空列表 / null 元素 → 安全跳过或放行")
+    void listVersionNullOrEmpty() {
+        owners.put(KEY_OWNED, OWNER);
+        assertEquals(List.of(), deniedIds(null, OUTSIDER, false));
+        assertEquals(List.of(), deniedIds(List.of(), OUTSIDER, false));
+        assertEquals(List.of(), deniedIds(java.util.Arrays.asList(null, "", KEY_NO_OWNER), OUTSIDER, false));
+    }
+
     /** 预置一个「有归属但无分享」的车厂，便于 fail-open 用例。 */
     private void ownerExistsButDenied() {
         owners.put(KEY_OWNED, OWNER);

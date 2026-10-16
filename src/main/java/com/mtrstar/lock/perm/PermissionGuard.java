@@ -6,6 +6,7 @@ import com.google.gson.JsonParser;
 import org.mtr.core.tool.Utilities;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -174,6 +175,34 @@ public final class PermissionGuard {
         }
         // parents = null：车厂是顶层对象，不需要子对象 → 父对象反查
         collectLongs(root, "depotIds", PermissionChecker.PREFIX_DEPOT, creators, null, permission, denied);
+        return denied;
+    }
+
+    /**
+     * 1.4.2：已经解析好的车厂 objectId 列表版本。
+     *
+     * <p>供 {@code /mtr generatePath / clearVehicles / instantDeploy} 命令路径复用：
+     * 这些命令使用 {@code DepotOperationByName}，没有 C2S 包 JSON，只有名字过滤结果。
+     * 判定语义与上面的 JSON 版本完全一致：顶层对象、无归属 fail-open、有归属且无权限则拒绝。</p>
+     */
+    public static List<String> findDeniedInDepotOperation(Collection<String> objectIds,
+                                                          CreatorLookup creators,
+                                                          EditPermission permission) {
+        final List<String> denied = new ArrayList<>();
+        if (objectIds == null || creators == null || permission == null) {
+            return denied;
+        }
+        for (String objectId : objectIds) {
+            if (objectId == null || objectId.isEmpty()) {
+                continue;
+            }
+            if (!creators.hasCreator(objectId)) {
+                continue; // 无归属 → fail-open
+            }
+            if (!permission.canEdit(objectId)) {
+                denied.add(objectId);
+            }
+        }
         return denied;
     }
 

@@ -1,6 +1,7 @@
 {
 	"required": true,
 	"package": "com.mtrstar.lock.mixin",
+	"plugin": "com.mtrstar.lock.mixin.MtrlockMixinPlugin",
 	"compatibilityLevel": "JAVA_17",
 	"mixins": [
 		"PacketRequestResponseBaseMixin",
@@ -11,7 +12,14 @@
 		"DeleteOwnershipCleanupMixin",
 		"DataChildParentMixin",
 		"EntityDisplayNameMixin",
-		"PlayerListNameMixin"
+		"PlayerListNameMixin",
+		"AxiomServerboundSetBlockMixin",
+		"AxiomServerboundSetBufferMixin",
+		"SetBlockCommandMixin",
+		"FillCommandMixin",
+		"MtrDepotCommandMixin",
+		"PistonHandlerMixin",
+		"ExplosionMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

@@ -3,6 +3,51 @@
 mtrlock（MTR 线路 / 车站 / 车厂权限模组）的版本变更记录。
 版本号以 `gradle.properties` 的 `version` 为准，构建产物为 `build/libs/mtrlock-<version>.jar`（已 remap）。
 
+## [1.4.2]
+
+主题「堵住方块保护的四类旁路」：在 1.3.0「玩家直接破坏 / 放置」之上，补齐 Axiom 批量写、
+`/setblock` / `/fill`、MTR `/mtr` 车厂命令（`DepotOperationByName`）以及活塞 / TNT 爆炸；
+全部采用「完全拒绝、不做部分过滤」策略。
+
+- **Axiom 拦截（@Pseudo 软依赖）**：
+  - 新增 `AxiomServerboundSetBlockMixin`，在 `handle` HEAD 遍历 `blocks` 全部坐标；
+  - 新增 `AxiomServerboundSetBufferMixin`，在 `applyBlockBufferServer` HEAD 遍历 `BlockBuffer`
+    全部坐标；`PositionConsumer` / `BlockBuffer.forEach` 的反射查找缓存在静态 final 字段，
+    每个 SetBuffer 包不再重复 `Class.forName/getMethod`；
+  - 任一命中且无权限 → 整包取消；日志 + 聊天提示；
+  - 未安装 Axiom 时 `@Pseudo` mixin 不生效。
+- **命令拦截**：
+  - `SetBlockCommandMixin`：`/setblock` 目标坐标命中保护区域且玩家无权限 → 返回 0；
+  - `FillCommandMixin`：`/fill` 按 chunk 去重扫描，与任一“玩家无权限的受保护范围”
+    相交 → 整条命令取消；不逐方块遍历，大选区不会随方块数线性变慢；
+  - 命令方块 / 控制台无玩家身份时放行。
+- **MTR `/mtr` 车厂命令拦截**：
+  - 新增 `MtrDepotCommandMixin`，覆盖 `generatePath` / `clearVehicles` / `instantDeploy`
+    的 `allDepots` 与 `depot`（按名称过滤）两个私有 lambda，并兼容 MTR 4.0.0 / 4.0.5
+    的 lambda 编号差异；
+  - 新增 `MtrlockMixinPlugin` 启动自检：在 `org.mtr.mod.Init` transform 时记录实际找到的
+    `lambda$depotOperationFromCommand$*`；一个都没找到会打 WARN，避免将来 MTR 改 lambda 名
+    后保护静默失效；
+  - 按 `DepotOperationByName` 的过滤结果查 `data.depots`，复用新增的
+    `PermissionGuard.findDeniedInDepotOperation(Collection<String>, ...)`；
+  - 权限门槛对齐 mtrlock admin（OP 3+），任一命中车厂无权限 → 命令返回 0。
+- **活塞 / 爆炸间接破坏**：
+  - `PistonHandlerMixin`：`calculatePush` RETURN，movedBlocks / brokenBlocks 命中“有归属”的
+    保护区域 → 强制返回 false，整次活塞失败；
+  - `ExplosionMixin`：`collectBlocksAndDamageEntities` RETURN，affectedBlocks 命中“有归属”的
+    保护区域 → 清空整个 affectedBlocks，整次爆炸不破坏方块。
+- **水平多格方块副格**：
+  - `ProtectionListener.onUseBlock` 对床（`BedBlock`）额外检查玩家水平朝向的床头坐标；
+  - 垂直多格（高草、门）x/z 与主格相同，由既有 2D 索引天然覆盖。
+- **共享判定抽离**：
+  - `ProtectionListener` 新增 `canPlayerModifyAt(...)` / `hasProtectedObjectAt(...)` /
+    `notifyDenied(...)`，供命令 / Axiom / 活塞 / 爆炸 mixin 复用。
+- **测试**：
+  - 全量单测 518 个全绿；1.4.2 新增 9 个：`PermissionGuardDepotOperationTest` 列表版 3 个、
+    `AxiomBlockGuardTest` 坐标遍历 3 个、`SpatialIndexTest#lookupArea` 3 个。
+- **已知不覆盖**：`/clone`、`/place`、`/structure`、火焰、水流、网页 dashboard；
+  Axiom 仅在服务端安装时生效；详见 README「已知限制」。
+
 ## [1.4.1]
 
 主题「车厂操作保护」：堵一个权限缺口——非归属者对**别人的车厂**点

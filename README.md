@@ -28,6 +28,13 @@
 - **车厂操作保护（1.4.1）**：非归属者对**别人的车厂**点「生成列车 / 即时部署 / 清空车辆」会被拒绝
   （聊天栏提示 + 服务器日志），与编辑 / 删除同一套判定：创建者 / 对象分享到的团队成员 / OP 3+ 放行，
   无归属记录 fail-open。开关见 `protection.properties` 的 `protectDepotOperations`（默认 `true`）。
+- **区域方块保护扩展（1.4.2）**：在保留 1.3.0 直接破坏 / 放置保护的基础上，继续堵旁路：
+  - 活塞推动、TNT / 爆炸、`/setblock`、`/fill`、Axiom `SetBlock` / `SetBuffer`；
+  - 水平多格方块（床等）副格也会检查；
+  - 活塞 / 爆炸没有玩家身份，因此只检查“区域是否有归属”：有归属即整次操作失败；
+  - `/setblock` / `/fill` 有玩家身份时按创建者 / 团队成员 / OP 3+ 判定；命令方块 / 控制台放行；
+  - Axiom 拦截仅在服务端安装 Axiom 时生效；
+  - 本版仍不覆盖 `/clone`、`/place`、`/structure`、火焰、水流等其它间接路径（见“已知限制”）。
 
 - **团队系统**：玩家可创建 / 加入最多 3 个团队，把对象的编辑权限分享给团队成员。
   - 团队命令：`/team create|apply|accept|invite|join|leave|kick|transfer|disband|...`（共 13 个）
@@ -72,7 +79,7 @@
 | Fabric API | 0.92.12+1.20.1 |
 | MTR (Minecraft Transit Railway) | >= 4.0.0（`FABRIC-4.0.0+1.20.1`） |
 | Java | 17+ |
-| 本模组 | mtrlock 1.4.1 |
+| 本模组 | mtrlock 1.4.2 |
 
 > StyledChat（`styledchat`）/ StyledPlayerList（`styledplayerlist`）是**可选**模组。
 > 装了它们时 mtrlock 改用 Placeholder API 暴露前缀（详见“与 StyledChat / StyledPlayerList 共存”），
@@ -84,7 +91,7 @@
 
 1. 安装 Fabric Loader（1.20.1）。
 2. 把以下 jar 放进 `mods/`：
-   - `mtrlock-1.4.1.jar`
+   - `mtrlock-1.4.2.jar`
    - `fabric-api-0.92.12+1.20.1.jar`
    - `minecraft-transit-railway-FABRIC-4.0.0+1.20.1.jar`
 3. 启动一次服务端，会生成 `config/mtrperm/ownership.json`。
@@ -227,8 +234,30 @@ A 重新分享（或 B 重新加入团队）后，**下一次 sync 会自动把�
   服务器日志记 `拦截 <uuid> 的 PacketDepotGenerate 操作，权限不足: [depot:<HEX>]`。
 - **开关**：`config/mtrperm/protection.properties` 的 `protectDepotOperations`（默认 `true`）。
   设为 `false` 后三个包直接放行（`/mtrlock protect reload` 或重启生效，`/mtrlock protect status` 可查看当前值）。
-- **不覆盖的路径**：网页 dashboard 与 MTR 自带命令走的是 `*_by_depot_name` / servlet 转发，
-  **没有玩家身份**，因此不受本保护约束（与 mtrlock 既有的「dashboard 不拦」立场一致）。
+- **路径覆盖**：
+  - 1.4.1 起覆盖游戏内 GUI 的三个 `*_by_depot_ids` 包；
+  - 1.4.2 起覆盖 MTR 自带命令的 `*_by_depot_name` 路径（`generatePath` / `clearVehicles` / `instantDeploy`）；
+  - 网页 dashboard 直接改数据，没有玩家身份，仍不受本保护约束。
+
+## 区域方块保护扩展（1.4.2）
+
+1.4.2 在 1.3.0 的「玩家直接破坏 / 放置」之上，按“完全拒绝、不做部分过滤”处理四类旁路：
+
+| 旁路 | 拦截点 | 判定 |
+|---|---|---|
+| Axiom `SetBlock` 多目标 | `AxiomServerboundSetBlock.handle` HEAD | 遍历 `blocks` 全部坐标，任一无权限 → 整包取消 |
+| Axiom `SetBuffer` 批量 | `AxiomServerboundSetBuffer.applyBlockBufferServer` HEAD | 遍历 `BlockBuffer` 全部坐标，任一无权限 → 整包取消 |
+| `/setblock` | `SetBlockCommand.execute` HEAD | 目标坐标命中保护区域且玩家无权限 → 命令返回 0 |
+| `/fill` | `FillCommand.execute` HEAD | 按 chunk 去重扫描选区；与任一“玩家无权限的受保护范围”相交 → 整条命令取消 |
+| 活塞推动 | `PistonHandler.calculatePush` RETURN | movedBlocks / brokenBlocks 命中“有归属”的保护区域 → `calculatePush` 返回 false，整次活塞失败 |
+| TNT / 爆炸 | `Explosion.collectBlocksAndDamageEntities` RETURN | affectedBlocks 命中“有归属”的保护区域 → 清空列表，整次爆炸不破坏方块 |
+
+补充说明：
+
+- 活塞 / 爆炸没有玩家身份，所以不检查操作者权限，只检查区域“有没有归属记录”；
+- `/setblock`、`/fill` 的命令方块 / 控制台调用放行；
+- Axiom mixin 使用 `@Pseudo`，未安装 Axiom 时自动不生效；
+- `/clone`、`/place`、`/structure`、火焰、水流仍不在本版范围内。
 
 ## 配置文件
 
@@ -330,8 +359,11 @@ mtrlock 启动时会检测服务器是否装了 **StyledChat**（mod id `styledc
   可被旧客户端忽略的兼容尾段）。
 - **称号颜色只影响样式**：不改优先级、不影响团队前缀选择；颜色区在 1.2.4 已生效。
 
-- **区域方块保护只覆盖“直接破坏 / 放置”**：爆炸、活塞、火焰、水流、命令或其它模组等**间接**改变方块
-  本版不保护（功能范围明确限定，留后续版本）。
+- **区域方块保护（1.4.2 起）覆盖范围**：
+  - 已覆盖：玩家普通破坏 / 放置、水平多格副格、活塞、TNT / 爆炸、`/setblock`、`/fill`、Axiom `SetBlock` / `SetBuffer`。
+  - 未覆盖：`/clone`、`/place`、`/structure`、火焰扩散、水流、其它模组直接写 `ChunkSection` / `World` 的路径。
+  - 活塞 / 爆炸无玩家身份：只要影响列表命中“有归属”的保护区域，就整次操作不生效；不检查当前操作者权限。
+  - Axiom 拦截依赖服务端安装 Axiom；未安装时对应 `@Pseudo` mixin 不生效。
 - **线路（route）没有坐标**，不参与区域方块保护；站台 / 侧线随父对象矩形覆盖，也不单独保护。
 - **网页 dashboard 直接改数据**时，MTR 的 `Data#sync()` 通常会在下一次数据操作或重启时把索引纠正过来；
   若在没有任何 `sync` 触发的窗口期内改了范围，可用 `/mtrlock protect rebuild` 立即纠正。
@@ -347,9 +379,10 @@ mtrlock 启动时会检测服务器是否装了 **StyledChat**（mod id `styledc
 - **30 天清理是单向的**：超过 30 天的记录会被清掉，此后该站台视为永久移除，不再自动加回。
 - **线路没有归属记录时不清理**：模组安装前创建 / 网页创建的线路 fail-open，保持原样。
 
-- **车厂操作保护只覆盖游戏内 GUI 的三个包**（1.4.1）：网页 dashboard 与 MTR 命令走
-  `generate_by_depot_name` / `instant_deploy_by_depot_name` / `clear_by_depot_name`（servlet / 命令，无玩家身份），
-  不受约束；**无归属记录的车厂**同样 fail-open（同编辑 / 删除的已知缺口）。
+- **车厂操作保护（1.4.1 + 1.4.2）**：
+  - 已覆盖：游戏内 GUI 的三个包（`*_by_depot_ids`），以及 MTR `/mtr generatePath` /
+    `clearVehicles` / `instantDeploy` 的 `*_by_depot_name` 命令路径（按玩家身份判定，OP 3+ 才豁免）；
+  - 未覆盖：网页 dashboard 直接改数据（无玩家身份），以及无归属记录车厂的 fail-open。
 - **车厂操作被拒时客户端没有错误回执**：这三个包的 `responseType` 是 `NONE`，
   唯一反馈是 mtrlock 发的聊天消息；车厂界面可能短暂显示"生成中"。
 

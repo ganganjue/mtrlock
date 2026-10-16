@@ -73,6 +73,12 @@ public final class ObjectRange {
         return x >= minX && x <= maxX && z >= minZ && z <= maxZ;
     }
 
+    /** 本范围是否与矩形 [minX,maxX] × [minZ,maxZ] 相交（含边界）。 */
+    public boolean intersects(long otherMinX, long otherMaxX, long otherMinZ, long otherMaxZ) {
+        return minX <= otherMaxX && maxX >= otherMinX
+                && minZ <= otherMaxZ && maxZ >= otherMinZ;
+    }
+
     /**
      * 向外扩张若干方块（配置 {@code expandBlocks}）。
      *
