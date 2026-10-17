@@ -4,6 +4,7 @@ import com.mtrstar.lock.client.gui.ClientGuiState;
 import com.mtrstar.lock.client.gui.GuiRefreshable;
 import com.mtrstar.lock.client.gui.TeamGuiScreen;
 import com.mtrstar.lock.client.gui.TitleGuiScreen;
+import com.mtrstar.lock.client.integration.XaeroWaypointBridge;
 import com.mtrstar.lock.gui.GuiType;
 import com.mtrstar.lock.network.GuiActionCodec;
 import com.mtrstar.lock.network.GuiChannels;
@@ -16,6 +17,7 @@ import com.mtrstar.lock.network.payload.TitleGuiSnapshot;
 import com.mtrstar.lock.team.ResultCode;
 import com.mtrstar.lock.team.ResultMessages;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.MinecraftClient;
@@ -106,7 +108,11 @@ public class MtrlockClient implements ClientModInitializer {
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             ClientOwnership.clear();
             ClientGuiState.clear();
+            XaeroWaypointBridge.reset();
         });
+
+        // 1.5.0：Xaero 小地图 / 世界地图 waypoint 同步（内部已做 40 tick 节流 + 静默降级）
+        ClientTickEvents.END_CLIENT_TICK.register(client -> XaeroWaypointBridge.tick());
     }
 
     private static void refresh(MinecraftClient client) {
