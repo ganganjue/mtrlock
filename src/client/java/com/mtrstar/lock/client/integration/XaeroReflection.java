@@ -274,6 +274,10 @@ public final class XaeroReflection {
 
             initialized = true;
             return true;
+        } catch (ClassNotFoundException cnfe) {
+            // Xaero 未安装：正常场景，静默禁用，不打日志
+            disabled = true;
+            return false;
         } catch (Throwable t) {
             onLookupFailure(lookup, t);
             return false;
