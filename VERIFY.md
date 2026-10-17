@@ -15,7 +15,7 @@
 | Fabric Loader | 0.19.5（`gradle.properties` 同款；0.19.3+ 也可） |
 | Fabric API | 0.92.12+1.20.1 |
 | MTR (Minecraft Transit Railway) | FABRIC-4.0.0+1.20.1 |
-| 本模组 | build/libs/mtrlock-1.4.2.jar（自行 `./gradlew build` 产出） |
+| 本模组 | build/libs/mtrlock-1.5.0.jar（自行 `./gradlew build` 产出） |
 | Java | 17+（构建/运行服务端用 21 亦可） |
 
 服务端数据文件位置：
@@ -919,3 +919,75 @@ javap -p build/classes/java/main/com/mtrstar/lock/mixin/AxiomServerboundSetBuffe
 - 网页 dashboard 直接改 MTR 数据。
 - Axiom 未安装时，对应路径本身也不存在；安装后才由本版 mixin 拦截。
 - Axiom OP 等级 2+ 由 Axiom 权限系统放行；mtrlock 的区域保护只检查空间索引与玩家编辑权，不重新定义 Axiom 自身权限体系。
+
+---
+
+## 15. 1.5.0 Xaero waypoint 集成验证
+
+> 本环境只能执行 `./gradlew --offline test` / `build` 与 `javap`，**不能启动 Minecraft**。
+> 以下 in-game 步骤供 PC 环境验证。
+
+### 15.1 构建与单测
+
+```bash
+./gradlew --offline test     # 548 个用例全过（1.5.0 新增 30）
+./gradlew --offline build    # 产物 build/libs/mtrlock-1.5.0.jar
+```
+
+- Java target 仍为 17。
+- Xaero 只通过反射访问，不新增 compileOnly / implementation 依赖。
+- 客户端新增 `XaeroWaypointSpec` / `XaeroReflection` / `XaeroWaypointBridge` 三个类；
+  不新增 Mixin，不改 S2C 协议。
+
+### 15.2 反射目标复核（javap）
+
+```bash
+# Xaero 不在编译 classpath 时，mtrlock 仍应可构建
+./gradlew --offline build
+
+# 确认构建配置没有引入 Xaero 依赖
+grep -R -n -i xaero build.gradle gradle.properties || true
+```
+
+如需人工核对反射目标，请使用 recon 目录中的 Xaero 26.2.0 jar：
+
+```bash
+javap -classpath recon/xaerominimap.jar:recon/xaerolib.jar \
+  xaero.hud.minimap.BuiltInHudModules \
+  xaero.hud.module.HudModule \
+  xaero.hud.minimap.waypoint.thirdparty.ThirdPartyWaypointManager \
+  xaero.hud.minimap.waypoint.thirdparty.ThirdPartyWaypoints
+```
+
+### 15.3 场景清单
+
+| # | 步骤 | 预期 |
+|---|---|---|
+| 1 | 移除 Xaero jar，启动客户端并进服 | 客户端日志无 `[mtrlock][xaero]` WARN / ERROR；MTR 与其他 mtrlock 功能正常 |
+| 2 | 安装 Xaero 后进服，打开小地图与世界地图 | 仅看到「站」「厂」两类 waypoint，无线路 / 站台 / 侧线 |
+| 3 | 观察 waypoint 符号 | 「站」「厂」为正确汉字，不是方框或乱码 |
+| 4 | 观察 waypoint 颜色 | 车站为 GOLD，车厂为 AQUA |
+| 5 | 服务端删除 / 改名一个车站，等待约 2 秒 | 客户端对应 waypoint 消失或改名，无需重启客户端 |
+| 6 | 主世界 → 下界 / 末地，再返回主世界 | 每次切换后 waypoint 自动重建，不残留旧维度数据 |
+| 7 | 退出服务器后重新进入 | waypoint 自动出现，无需手动操作 |
+| 8 | 使用非兼容 Xaero 版本测试（或跳过） | 仅 WARN 一次后降级，不崩溃，不影响游戏与其他 mtrlock 功能 |
+
+### 15.4 日志关键字
+
+```text
+[mtrlock][xaero] 重建完成
+```
+
+DEBUG 级别输出；需在客户端日志配置中启用 debug 才会看到。
+
+```text
+[mtrlock][xaero] Xaero 反射查找失败
+```
+
+WARN 级别；仅在 Xaero 已安装但反射签名不兼容时出现，Xaero 未安装时不应出现。
+
+### 15.5 已知限制
+
+- Xaero 第三方 waypoint 不持久化，切维度 / 重连需重新注册；本模组已通过自动重建处理。
+- Xaero 内部 API 无公开 ABI，26.5.0 若签名变化可能触发降级，实机以 26.2.0 / 26.5.0 为准。
+- Xaero 未安装时集成整体静默跳过，不影响 mtrlock 其他客户端 / 服务端功能。

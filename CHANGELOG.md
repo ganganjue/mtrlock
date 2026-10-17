@@ -3,6 +3,38 @@
 mtrlock（MTR 线路 / 车站 / 车厂权限模组）的版本变更记录。
 版本号以 `gradle.properties` 的 `version` 为准，构建产物为 `build/libs/mtrlock-<version>.jar`（已 remap）。
 
+## [1.5.0]
+
+主题「Xaero 小地图 waypoint 集成」：客户端读取 MTR 的车站 / 车厂数据，并在 Xaero's Minimap /
+World Map 中以 waypoint 展示。只读展示，不改服务端协议、归属数据与权限判定。
+
+- **客户端数据源**：
+  - 从 `MinecraftClientData.getInstance()` 读取 `stations` / `depots`，过滤 `isValid() == false`、
+    `getCenter() == null` 与超出 int 范围的坐标；
+  - 车站显示符号「站」、颜色 GOLD；车厂显示符号「厂」、颜色 AQUA；
+  - 只显示车站 / 车厂两类，不显示线路 / 站台 / 侧线；
+  - MTR 的 y 坐标没有有效语义，waypoint 统一传 `y = 64` 并设置 `yIncluded = false`。
+- **Xaero 反射集成**：
+  - 不引入 Xaero 编译期依赖，通过反射访问 `BuiltInHudModules` → session → world manager →
+    container → `ThirdPartyWaypointManager`；
+  - 使用 `mtrlock:xaero_stations` / `mtrlock:xaero_depots` 两个 origin，每次重建前先
+    `clearOrigin`，再全量添加 waypoint；
+  - Xaero 未安装时静默禁用；已安装但签名不兼容时 WARN 一次后降级；调用异常静默重试，
+    连续失败达到阈值后禁用，不影响 mtrlock 其他功能。
+- **刷新与生命周期**：
+  - 每 40 tick（约 2 秒）读取一次 MTR 客户端数据，通过 spec 指纹与 manager 实例比对，
+    无变化时不重建；
+  - 车站 / 车厂增删改名后自动同步；切换维度 / 断线重连后自动清理并重建；
+  - Xaero 第三方 waypoint 不持久化，本模组通过自动重建补偿，无需玩家手动操作。
+- **测试**：
+  - 新增 `XaeroWaypointSpecTest` / `XaeroWaypointFingerprintTest` /
+    `XaeroWaypointFilterTest`，覆盖 Kind 常量、指纹顺序无关、名称分隔符防碰撞、
+    `isValid = false` 跳过、`Long.MIN/MAX` 跳过、超 int 范围跳过、manager 变化判定等；
+  - 全量单测 548 个全绿；1.5.0 新增 30 个（518 → 548）。
+- **已知限制**：Xaero 内部 API 无公开 ABI，26.5.0 若签名变更可能触发降级，实机以
+  26.2.0 / 26.5.0 为准；第三方 waypoint 切维度 / 重连需重新注册，本模组已自动重建；
+  详见 README「已知限制」。
+
 ## [1.4.2]
 
 主题「堵住方块保护的四类旁路」：在 1.3.0「玩家直接破坏 / 放置」之上，补齐 Axiom 批量写、

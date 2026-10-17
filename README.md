@@ -70,6 +70,10 @@
   - GUI 数据文件格式：`ownership.json` / `teams.json` / `shares.json` 与 1.2.3 完全一致；
     `titles.json` 1.2.4 升级为对象格式（旧字符串格式仍可读取，升级无感）。
 
+- **Xaero 小地图集成（1.5.0）**：可选。安装 Xaero's Minimap / World Map 后，MTR 车站显示为
+  「站」金色 waypoint，车厂显示为「厂」青色 waypoint，2 秒内自动同步；不装 Xaero 时静默降级，
+  不影响其他功能。
+
 ## 环境要求
 
 | 组件 | 版本 |
@@ -79,7 +83,8 @@
 | Fabric API | 0.92.12+1.20.1 |
 | MTR (Minecraft Transit Railway) | >= 4.0.0（`FABRIC-4.0.0+1.20.1`） |
 | Java | 17+ |
-| 本模组 | mtrlock 1.4.2 |
+| Xaero's Minimap / World Map | 26.2.0+ / 1.42.0+（可选，仅客户端，不装不影响其他功能） |
+| 本模组 | mtrlock 1.5.0 |
 
 > StyledChat（`styledchat`）/ StyledPlayerList（`styledplayerlist`）是**可选**模组。
 > 装了它们时 mtrlock 改用 Placeholder API 暴露前缀（详见“与 StyledChat / StyledPlayerList 共存”），
@@ -91,7 +96,7 @@
 
 1. 安装 Fabric Loader（1.20.1）。
 2. 把以下 jar 放进 `mods/`：
-   - `mtrlock-1.4.2.jar`
+   - `mtrlock-1.5.0.jar`
    - `fabric-api-0.92.12+1.20.1.jar`
    - `minecraft-transit-railway-FABRIC-4.0.0+1.20.1.jar`
 3. 启动一次服务端，会生成 `config/mtrperm/ownership.json`。
@@ -385,6 +390,8 @@ mtrlock 启动时会检测服务器是否装了 **StyledChat**（mod id `styledc
   - 未覆盖：网页 dashboard 直接改数据（无玩家身份），以及无归属记录车厂的 fail-open。
 - **车厂操作被拒时客户端没有错误回执**：这三个包的 `responseType` 是 `NONE`，
   唯一反馈是 mtrlock 发的聊天消息；车厂界面可能短暂显示"生成中"。
+
+- **Xaero waypoint 不持久化**：切维度 / 重连需重新注册；本模组已自动重建，无需手动操作。
 
 > 完整验证步骤与排查清单见仓库根目录的 `VERIFY.md`。
 
