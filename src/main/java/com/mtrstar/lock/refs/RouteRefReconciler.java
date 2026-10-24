@@ -31,8 +31,13 @@ import java.util.Set;
  * <p><b>owner 唯一来源</b>是 {@code ownership.json} 的创建者 UUID（{@link OwnerLookup}）：
  * MTR 4.0.0 / 4.0.5 的 {@code Route} 没有 owner 字段。没有 owner 记录 → fail-open 整条跳过。</p>
  *
- * <p><b>权限判定</b>用 UUID 版本（{@link PermissionLookup}），{@code isAdmin} 固定 false：
- * OP 等级是在线玩家的实时属性，owner 是离线 UUID，推不出来；这与「OP 不进快照」一致。</p>
+ * <p><b>权限判定</b>分两部分：</p>
+ * <ul>
+ *   <li>第一遍「当前引用是否失权」先查 owner 的实时 OP3+ 状态（{@link AdminLookup}）；
+ *       OP3+ 直接保留引用，否则走 {@link PermissionLookup} 的创建者 / 分享 / 团队判定；</li>
+ *   <li>第二遍「已记账引用是否恢复」保持原有语义，只走 {@link PermissionLookup}，
+ *       不受 OP 豁免影响。</li>
+ * </ul>
  *
  * <p><b>平台 → 车站反查</b>用运行时 {@code data.platformIdMap.get(platformId).area}
  * （{@code Platform.area} 由 MTR 在 sync 内部挂好，RETURN 时已是本轮结果），
@@ -74,6 +79,19 @@ public final class RouteRefReconciler {
         boolean canEdit(String ownerUuid, String stationObjectId);
     }
 
+    /**
+     * 线路 owner 的实时 OP3+ 状态查询。
+     *
+     * <p>只用于第一遍「当前引用是否失权」的移除判定；恢复分支仍只走
+     * {@link PermissionLookup}，保持原有行为。</p>
+     */
+    @FunctionalInterface
+    public interface AdminLookup {
+
+        /** @return owner 为 OP 权限等级 3+ 时返回 true */
+        boolean isAdmin(String ownerUuid);
+    }
+
     /** 一条被处理的引用（routeId + platformId）。 */
     public record Ref(String routeId, long platformId) {
     }
@@ -107,6 +125,24 @@ public final class RouteRefReconciler {
      */
     public static Result reconcile(Data data, OwnerLookup owners, RemovedRefsData removedRefs,
                                    PermissionLookup permissions) {
+        return reconcile(data, owners, removedRefs, permissions, null);
+    }
+
+    /**
+     * 全量对账（1.5.1：第一遍移除判定支持 owner 的 OP3+ 豁免）。
+     *
+     * <p>{@code admins} 只参与第一遍「当前引用是否失权」的判定。第二遍恢复 / 幽灵清理
+     * 仍只使用 {@code permissions}，避免本次修复改变历史账本的恢复语义。</p>
+     *
+     * @param data        服务端 MTR 数据（sync RETURN 时刻）
+     * @param owners      routeId → 创建者 UUID
+     * @param removedRefs 引用账本
+     * @param permissions owner → 车站 的编辑权限判定
+     * @param admins      线路 owner 的实时 OP3+ 判定；null 等价于全部非 OP
+     * @return 本次移除 / 加回 / 清理的统计
+     */
+    public static Result reconcile(Data data, OwnerLookup owners, RemovedRefsData removedRefs,
+                                   PermissionLookup permissions, AdminLookup admins) {
         final List<Ref> removed = new ArrayList<>();
         final List<Ref> restored = new ArrayList<>();
         final List<Ref> purged = new ArrayList<>();
@@ -167,7 +203,7 @@ public final class RouteRefReconciler {
                     continue;
                 }
                 final String stationObjectId = RemovedRefsData.stationObjectId(station.getId());
-                if (permissions.canEdit(owner, stationObjectId)) {
+                if (isAdmin(admins, owner) || permissions.canEdit(owner, stationObjectId)) {
                     continue;
                 }
 
@@ -250,6 +286,18 @@ public final class RouteRefReconciler {
         // 节流落盘：变更后 5 秒 debounce 或累计 10 次对账先到先落
         removedRefs.afterReconcile();
         return new Result(removed, restored, purged);
+    }
+
+    /** OP 查询失败时按非 OP 降级，不能中断 Data.sync()。 */
+    private static boolean isAdmin(AdminLookup admins, String ownerUuid) {
+        if (admins == null || ownerUuid == null || ownerUuid.isEmpty()) {
+            return false;
+        }
+        try {
+            return admins.isAdmin(ownerUuid);
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 
     /** 站台 → 父车站；孤儿站台 / 车站已删时返回 null。 */

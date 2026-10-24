@@ -86,6 +86,18 @@ class PermissionGuardTest {
     }
 
     @Test
+    @DisplayName("回归：非 OP 操作者发包仍由第一层编辑 Guard 拒绝，提示文案未改动")
+    void nonAdminOperatorIsStillDeniedByFirstLayerEditGuard() {
+        final List<String> denied = PermissionGuard.findDeniedInUpdate(
+                updateJson(),
+                existing(Collections.singleton(ROUTE_KEY)),
+                denyAll());
+
+        assertEquals(Collections.singletonList(ROUTE_KEY), denied,
+                "第一层 PacketEditPermissionMixin 的包拦截语义不能被对账修复改变");
+    }
+
+    @Test
     @DisplayName("编辑：已归属对象且是创建者 → 放行")
     void editAllowed() {
         final Set<String> all = new HashSet<>();
@@ -122,6 +134,18 @@ class PermissionGuardTest {
                 denyAll());
 
         assertEquals(Collections.singletonList(STATION_KEY), denied);
+    }
+
+    @Test
+    @DisplayName("回归：删除请求分支不受 owner OP 对账修复影响")
+    void deleteBranchRemainsUnaffected() {
+        final List<String> denied = PermissionGuard.findDeniedInDelete(
+                deleteJson(),
+                existing(Collections.singleton(ROUTE_KEY)),
+                denyAll());
+
+        assertEquals(Collections.singletonList(ROUTE_KEY), denied,
+                "本次修复只改 RouteRefReconciler 第一遍移除判定，不应改删除分支");
     }
 
     @Test

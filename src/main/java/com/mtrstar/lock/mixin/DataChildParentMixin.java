@@ -1,8 +1,10 @@
 package com.mtrstar.lock.mixin;
 
+import com.mojang.authlib.GameProfile;
 import com.mtrstar.lock.Mtrlock;
 import com.mtrstar.lock.network.OwnershipSync;
 import com.mtrstar.lock.perm.ChildParents;
+import com.mtrstar.lock.perm.OwnerAdminStatus;
 import com.mtrstar.lock.perm.OwnershipData;
 import com.mtrstar.lock.perm.PermissionChecker;
 import com.mtrstar.lock.protect.ProtectionIndex;
@@ -10,8 +12,11 @@ import com.mtrstar.lock.refs.RefsNotices;
 import com.mtrstar.lock.refs.RemovedRefsData;
 import com.mtrstar.lock.refs.RouteRefReconciler;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.OperatorEntry;
+import net.minecraft.server.OperatorList;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
+import net.minecraft.util.UserCache;
 import org.mtr.core.data.Data;
 import org.mtr.core.data.Platform;
 import org.mtr.core.data.Siding;
@@ -25,6 +30,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -48,6 +54,7 @@ import java.util.UUID;
  *
  * <p>1.4.0 起再追加<b>线路引用对账</b>（{@link RouteRefReconciler}）：owner 对线路引用的
  * 某个站台失去权限时，把该站台从线路里临时移除并记账；权限恢复后自动加回。
+ * 第一遍失权判定会按 owner 的真实 OP3+ 状态豁免；恢复分支保持原逻辑。
  * 三个注入器共享同一个 RETURN 点但互不依赖，都直接读 {@code Data}。</p>
  *
  * <p>注意：只做「索引 / 对账」，不参与权限判定本身；删除成功后的清理见
@@ -136,13 +143,55 @@ public abstract class DataChildParentMixin {
                 routeId -> OwnershipData.getInstance().getCreator(routeId),
                 removedRefs,
                 (ownerUuid, stationObjectId) -> PermissionChecker.canEdit(
-                        parseUuid(ownerUuid), stationObjectId, false));
+                        parseUuid(ownerUuid), stationObjectId, false),
+                DataChildParentMixin::isAdminOwner);
 
         if (!result.changed()) {
             return;
         }
         logResult(result);
         notifyOwners(result);
+    }
+
+    /**
+     * 解析线路 owner 的真实 OP3+ 状态。
+     *
+     * <p>在线玩家优先用实时权限；不在线时才查 UserCache + OperatorList。任何查询异常都按
+     * 非 OP 降级，避免中断 {@code Data.sync()}。</p>
+     */
+    private static boolean isAdminOwner(String ownerUuid) {
+        final UUID uuid = parseUuid(ownerUuid);
+        if (uuid == null) {
+            return false;
+        }
+        final MinecraftServer server = OwnershipSync.getServer();
+        if (server == null) {
+            return false;
+        }
+        return OwnerAdminStatus.isAdmin(
+                uuid,
+                id -> {
+                    final ServerPlayerEntity online = server.getPlayerManager().getPlayer(id);
+                    return online == null
+                            ? Optional.empty()
+                            : Optional.of(online.hasPermissionLevel(PermissionChecker.ADMIN_PERMISSION_LEVEL));
+                },
+                id -> {
+                    final UserCache userCache = server.getUserCache();
+                    if (userCache == null) {
+                        return false;
+                    }
+                    final Optional<GameProfile> profile = userCache.getByUuid(id);
+                    if (profile.isEmpty()) {
+                        return false;
+                    }
+                    final OperatorList operatorList = server.getPlayerManager().getOpList();
+                    if (operatorList == null) {
+                        return false;
+                    }
+                    final OperatorEntry entry = operatorList.get(profile.get());
+                    return entry != null && OwnerAdminStatus.isAdminLevel(entry.getPermissionLevel());
+                });
     }
 
     /** UUID 字符串解析失败（脏数据）→ null → canEdit 返回 false（fail-open，不移除）。 */

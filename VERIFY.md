@@ -1,7 +1,7 @@
 # VERIFY.md — mtrlock 功能 3 / 4 / 5 in-game 验证手册
 
 > 本环境（Termux / Android）**无法运行 Minecraft 客户端**，因此本仓库只做了：
-> `./gradlew --offline compileJava` 编译 + JVM 单元测试（31 个用例全过）。
+> `./gradlew --offline compileJava` 编译 + JVM 单元测试（当前全量 564 个用例全过）。
 > 真正的 in-game 行为请按本文档在 PC 上验证。
 > 本文档不包含任何“已通过 in-game 验证”的声明。
 
@@ -15,7 +15,7 @@
 | Fabric Loader | 0.19.5（`gradle.properties` 同款；0.19.3+ 也可） |
 | Fabric API | 0.92.12+1.20.1 |
 | MTR (Minecraft Transit Railway) | FABRIC-4.0.0+1.20.1 |
-| 本模组 | build/libs/mtrlock-1.5.0.jar（自行 `./gradlew build` 产出） |
+| 本模组 | build/libs/mtrlock-1.5.1.jar（自行 `./gradlew build` 产出） |
 | Java | 17+（构建/运行服务端用 21 亦可） |
 
 服务端数据文件位置：
@@ -687,8 +687,9 @@ javap -p build/classes/java/main/com/mtrstar/lock/mixin/DataChildParentMixin.cla
 - **滞后一个 `sync` 周期**：移除发生在 `Data#sync()` 返回之后，`Platform.routes` / 车厂路径缓存
   要等下一次 `sync` 才一致。设计上**不做守卫式二次 sync**。
 - **加回不还原站序**：加回的站台追加到线路末尾。
-- **OP 3+ 不算「有权限」**：owner 是离线 UUID，OP 等级推不出来；对账里管理员豁免固定关闭。
-  非创建者的 OP 对别人的线路引用**不参与判定**。
+- **1.4.0–1.5.0 的历史行为**：owner 是离线 UUID，OP 等级推不出来，对账里管理员豁免固定关闭。
+  **1.5.1 起已修正**：第一遍失权判定会查 owner 的真实 OP3+ 状态（在线实时权限 / 离线 OperatorList），
+  详见第 16 节。
 - **GUI 本版不做**：只有命令 + 聊天提示 + 日志。
 - **网页 dashboard 直改数据**：会在下一次 `sync`（任意对象增删改 / 拉数据）自动收敛；
   也可用 `/mtrlock refs restore` 手动纠正。
@@ -991,3 +992,57 @@ WARN 级别；仅在 Xaero 已安装但反射签名不兼容时出现，Xaero �
 - Xaero 第三方 waypoint 不持久化，切维度 / 重连需重新注册；本模组已通过自动重建处理。
 - Xaero 内部 API 无公开 ABI，26.5.0 若签名变化可能触发降级，实机以 26.2.0 / 26.5.0 为准。
 - Xaero 未安装时集成整体静默跳过，不影响 mtrlock 其他客户端 / 服务端功能。
+
+
+---
+
+## 16. 1.5.1 OP3+ 线路引用对账修复验证
+
+> 本环境只能执行 `./gradlew --offline test` / `build`，不能启动 Minecraft。
+> 以下 in-game 步骤供 PC 环境验证。
+
+### 16.1 构建与单测
+
+```bash
+./gradlew --offline test     # 564 个用例全过（1.5.1 新增 16）
+./gradlew --offline build    # 产物 build/libs/mtrlock-1.5.1.jar
+```
+
+- Java target 仍为 17。
+- `ownership.json` 持久化格式不变。
+- 客户端提示与 `PacketEditPermissionMixin` 第一层 OP3+ 豁免顺序不变。
+
+### 16.2 场景清单
+
+准备：线路 owner 为 A（创建路线 R），车站 S 由 B 创建；准备 A 在线 / 离线的 OP3+ 与 OP2 两种状态。
+
+| # | 步骤 | 预期 |
+|---|---|---|
+| 1 | OP3+ A **在线**，把 B 的车站 S 的站台加入 R | 引用保留；`removed_refs.json` 不新增记录 |
+| 2 | OP3+ A **离线**（A 曾在服务器 OP 列表内），把 B 的站台加入 R 后触发 sync | 引用保留；离线查询使用 `UserCache.getByUuid(...)` + `OperatorList` |
+| 3 | 非 OP A **在线**，把 B 的站台加入 R | 引用被移除并记账（原有行为） |
+| 4 | 非 OP A **离线**，把 B 的站台加入 R | 引用被移除并记账（原有行为） |
+| 5 | OP2 A（在线 / 离线）重复 #1 / #2 | 引用被移除并记账，不得获得 OP3+ 豁免 |
+| 6 | OP3+ A 添加自己创建的车站站台 | 引用保留，原有创建者判定不回退 |
+| 7 | 已因非 OP 失权而记账的引用，A 随后变为 OP3+ 但权限未恢复 | 恢复分支保持原逻辑，不因 OP 自动加回 |
+| 8 | 非 OP 玩家编辑他人线路 | 第一层包拦截仍拒绝，提示文案不变 |
+| 9 | 删除线路 / 删除对象 | `findDeniedInDelete` 删除分支不受本次修复影响 |
+
+### 16.3 日志关键字
+
+```text
+[mtrlock] 线路引用移除（owner 已失去站台权限）
+```
+
+非 OP owner 添加无权限车站时仍出现。
+
+```text
+[mtrlock] 线路引用恢复（owner 权限已恢复）
+```
+
+恢复分支仍只在原 `PermissionLookup` 判定通过时出现，不以 OP 状态单独触发。
+
+### 16.4 异常降级
+
+- `UserCache` 为 null、UUID 查不到 `GameProfile`、`OperatorList` 查询异常 → 按非 OP 处理。
+- 上述异常不得抛到 `Data.sync()`；对账应继续执行或安全跳过，不应导致服务器 tick 中断。

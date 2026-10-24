@@ -3,6 +3,30 @@
 mtrlock（MTR 线路 / 车站 / 车厂权限模组）的版本变更记录。
 版本号以 `gradle.properties` 的 `version` 为准，构建产物为 `build/libs/mtrlock-<version>.jar`（已 remap）。
 
+## [1.5.1]
+
+主题「修复 OP3+ 线路 owner 添加车站后被引用对账误移除」。
+
+- **Bug**：线路 owner 的权限等级 ≥3 时，在「添加车站到线路」后，`Data.sync()` 的
+  线路引用对账仍按非 OP 处理，刚添加的站台引用会被错误移除并记入 `removed_refs.json`。
+- **根因**：`DataChildParentMixin` 对账时调用
+  `PermissionChecker.canEdit(ownerUuid, stationObjectId, false)`，管理员豁免被硬编码关闭。
+- **修复**：
+  - 第一遍「当前引用是否失权」判定按 owner 的真实 OP3+ 状态处理：
+    owner 在线时使用 `ServerPlayerEntity.hasPermissionLevel(3)`；
+    owner 离线时通过 `UserCache.getByUuid(...)` 取 `GameProfile`，再查
+    `PlayerManager.getOpList()` / `OperatorEntry.getPermissionLevel()`；
+  - OP3+ owner 直接保留引用，非 OP owner 继续走原有创建者 / 分享 / 团队判定；
+  - 恢复、幽灵清理与删除分支保持原逻辑，本次修复只影响「新增引用」的移除判定；
+  - `UserCache` / profile / `OperatorList` 查询异常统一按非 OP 降级，不中断 `Data.sync()`；
+  - `ownership.json` 持久化格式不变；客户端提示与 `PacketEditPermissionMixin` 第一层
+    OP3+ 豁免顺序不变。
+- **测试**：全量单测 **564 个全绿**；1.5.1 新增 16 个：
+  - `OwnerAdminStatusTest` 7 个：在线 / 离线 OP3、OP2、在线优先、异常降级；
+  - `RouteRefReconcilerTest` 7 个：OP3+ 在线 / 离线保留引用、非 OP 在线 / 离线移除、
+    OP2 移除、owner 自己的车站保留、已记账引用恢复分支不受影响；
+  - `PermissionGuardTest` 2 个：第一层编辑拦截与删除分支回归。
+
 ## [1.5.0]
 
 主题「Xaero 小地图 waypoint 集成」：客户端读取 MTR 的车站 / 车厂数据，并在 Xaero's Minimap /

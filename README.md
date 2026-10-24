@@ -84,7 +84,7 @@
 | MTR (Minecraft Transit Railway) | >= 4.0.0（`FABRIC-4.0.0+1.20.1`） |
 | Java | 17+ |
 | Xaero's Minimap / World Map | 26.2.0+ / 1.42.0+（可选，仅客户端，不装不影响其他功能） |
-| 本模组 | mtrlock 1.5.0 |
+| 本模组 | mtrlock 1.5.1 |
 
 > StyledChat（`styledchat`）/ StyledPlayerList（`styledplayerlist`）是**可选**模组。
 > 装了它们时 mtrlock 改用 Placeholder API 暴露前缀（详见“与 StyledChat / StyledPlayerList 共存”），
@@ -96,7 +96,7 @@
 
 1. 安装 Fabric Loader（1.20.1）。
 2. 把以下 jar 放进 `mods/`：
-   - `mtrlock-1.5.0.jar`
+   - `mtrlock-1.5.1.jar`
    - `fabric-api-0.92.12+1.20.1.jar`
    - `minecraft-transit-railway-FABRIC-4.0.0+1.20.1.jar`
 3. 启动一次服务端，会生成 `config/mtrperm/ownership.json`。
@@ -177,8 +177,11 @@ A 重新分享（或 B 重新加入团队）后，**下一次 sync 会自动把�
 
 - **owner 判定**：线路 owner 取 `config/mtrperm/ownership.json` 里的创建者 UUID
   （MTR 的 `Route` 没有 owner 字段）。**没有归属记录的线路 fail-open 跳过**，不做任何移除。
-- **权限判定**：与编辑 / 删除保护同一套 `PermissionChecker`（创建者本人、对象分享到的团队成员）。
-  **OP 3+ 不算「有权限」**：owner 是离线 UUID，OP 等级推不出来，所以对账里管理员豁免固定关闭。
+- **权限判定**：第一遍「当前引用是否失权」按线路 owner 的真实 OP3+ 状态判定：
+  - owner 在线：`ServerPlayerEntity.hasPermissionLevel(3)`；
+  - owner 离线：`UserCache.getByUuid(...)` 取 `GameProfile`，再查 `OperatorList` 的权限等级；
+  - OP3+ 直接保留引用；非 OP 走创建者本人、对象分享到的团队成员判定。
+  - 已记账引用的恢复 / 幽灵清理分支保持原逻辑，不受本次 OP 豁免影响。
 - **fail-open 的情况**（不判定为失权）：站台对象已从存档消失、线路没有归属记录。
 - **车站被删除**（站台成孤儿，`Platform.area == null`）→ 按设计**视为失去权限**，自动移除并记账
   （记录的 `stationObjectId` 为 null）；该引用要等车站重建 + 手动 `/mtrlock refs restore`，

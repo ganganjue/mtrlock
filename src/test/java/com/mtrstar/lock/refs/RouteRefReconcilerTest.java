@@ -1,5 +1,6 @@
 package com.mtrstar.lock.refs;
 
+import com.mtrstar.lock.perm.OwnerAdminStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -23,7 +24,9 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -145,6 +148,17 @@ class RouteRefReconcilerTest {
                 });
     }
 
+    /** 用真实 owner OP 状态解析链路（在线 / 离线分流）驱动对账。 */
+    private RouteRefReconciler.Result reconcileWithAdminStatus(
+            OwnerAdminStatus.OnlineLookup online, OwnerAdminStatus.OfflineLookup offline) {
+        return RouteRefReconciler.reconcile(data, owners::get, removedRefs,
+                (owner, stationObjectId) -> {
+                    final Set<String> set = permissions.get(owner);
+                    return set != null && set.contains(stationObjectId);
+                },
+                owner -> OwnerAdminStatus.isAdmin(UUID.fromString(owner), online, offline));
+    }
+
     /**
      * 已解析的引用 id 列表。
      *
@@ -213,6 +227,113 @@ class RouteRefReconcilerTest {
         assertTrue(removedRefs.hasRemoved(routeId, platform1.getId()));
         assertEquals(stationAId, removedRefs.getRemoved(routeId).get(0).stationObjectId);
         assertFalse(removedRefs.hasRemoved(routeId, platform2.getId()));
+    }
+
+    @Test
+    @DisplayName("OP3+ owner 在线添加他人创建的车站 → 引用保留")
+    void onlineAdminOwnerKeepsOthersStationReference() {
+        revoke(OWNER_A, stationAId);
+
+        final RouteRefReconciler.Result result = reconcileWithAdminStatus(
+                id -> Optional.of(true),
+                id -> false);
+
+        assertFalse(result.changed(), "OP3+ 在线 owner 不应触发移除: " + result);
+        assertTrue(referencedPlatformIds().contains(platform1.getId()));
+        assertFalse(removedRefs.hasRemoved(routeId, platform1.getId()));
+    }
+
+    @Test
+    @DisplayName("OP3+ owner 离线添加他人创建的车站 → 引用保留（OperatorList 路径）")
+    void offlineAdminOwnerKeepsOthersStationReference() {
+        revoke(OWNER_A, stationAId);
+
+        final RouteRefReconciler.Result result = reconcileWithAdminStatus(
+                id -> Optional.empty(),
+                id -> true);
+
+        assertFalse(result.changed(), "OP3+ 离线 owner 不应触发移除: " + result);
+        assertTrue(referencedPlatformIds().contains(platform1.getId()));
+        assertFalse(removedRefs.hasRemoved(routeId, platform1.getId()));
+    }
+
+    @Test
+    @DisplayName("非 OP owner 在线添加他人创建的车站 → 引用移除")
+    void onlineNonAdminOwnerRemovesOthersStationReference() {
+        revoke(OWNER_A, stationAId);
+
+        final RouteRefReconciler.Result result = reconcileWithAdminStatus(
+                id -> Optional.of(false),
+                id -> true);
+
+        assertEquals(1, result.removed().size(), "在线非 OP 应走原有失权移除: " + result);
+        assertFalse(referencedPlatformIds().contains(platform1.getId()));
+        assertTrue(removedRefs.hasRemoved(routeId, platform1.getId()));
+    }
+
+    @Test
+    @DisplayName("非 OP owner 离线添加他人创建的车站 → 引用移除")
+    void offlineNonAdminOwnerRemovesOthersStationReference() {
+        revoke(OWNER_A, stationAId);
+
+        final RouteRefReconciler.Result result = reconcileWithAdminStatus(
+                id -> Optional.empty(),
+                id -> false);
+
+        assertEquals(1, result.removed().size(), "离线非 OP 应走原有失权移除: " + result);
+        assertFalse(referencedPlatformIds().contains(platform1.getId()));
+        assertTrue(removedRefs.hasRemoved(routeId, platform1.getId()));
+    }
+
+    @Test
+    @DisplayName("OP2 owner（在线 / 离线）添加他人创建的车站 → 引用移除")
+    void op2OwnerRemovesOthersStationReference() {
+        revoke(OWNER_A, stationAId);
+
+        final RouteRefReconciler.Result onlineResult = reconcileWithAdminStatus(
+                id -> Optional.of(OwnerAdminStatus.isAdminLevel(2)),
+                id -> true);
+        assertEquals(1, onlineResult.removed().size(), "OP2 在线仍应移除: " + onlineResult);
+
+        // 重新加回并制造一次离线 OP2 对账
+        route.getRoutePlatforms().add(new RoutePlatformData(platform1.getId()));
+        data.sync();
+        removedRefs.removeRemoved(routeId, platform1.getId());
+        final RouteRefReconciler.Result offlineResult = reconcileWithAdminStatus(
+                id -> Optional.empty(),
+                id -> OwnerAdminStatus.isAdminLevel(2));
+        assertEquals(1, offlineResult.removed().size(), "OP2 离线仍应移除: " + offlineResult);
+    }
+
+    @Test
+    @DisplayName("OP3+ owner 添加自己的车站 → 引用保留，原有权限判定不回退")
+    void adminOwnerKeepsOwnStationReference() {
+        revoke(OWNER_A, stationBId);
+        grant(OWNER_A, stationAId);
+
+        final RouteRefReconciler.Result result = reconcileWithAdminStatus(
+                id -> Optional.empty(),
+                id -> false);
+
+        assertEquals(1, result.removed().size(), "只有失权站台应被移除: " + result);
+        assertTrue(referencedPlatformIds().contains(platform1.getId()), "owner 自己的车站应保留");
+        assertFalse(removedRefs.hasRemoved(routeId, platform1.getId()));
+    }
+
+    @Test
+    @DisplayName("OP 豁免只作用于新引用移除，不改变已记账引用的恢复分支")
+    void adminBypassDoesNotChangeRestoreBranch() {
+        revoke(OWNER_A, stationAId);
+        assertEquals(1, reconcile().removed().size());
+        assertTrue(removedRefs.hasRemoved(routeId, platform1.getId()));
+
+        final RouteRefReconciler.Result adminResult = reconcileWithAdminStatus(
+                id -> Optional.of(true),
+                id -> false);
+
+        assertFalse(adminResult.changed(), "恢复分支仍应只按 PermissionLookup 判定: " + adminResult);
+        assertFalse(referencedPlatformIds().contains(platform1.getId()));
+        assertTrue(removedRefs.hasRemoved(routeId, platform1.getId()));
     }
 
     @Test
