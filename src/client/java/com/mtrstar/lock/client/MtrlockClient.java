@@ -107,6 +107,7 @@ public class MtrlockClient implements ClientModInitializer {
 
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             ClientOwnership.clear();
+            ClientRoutePlatformGuard.clearSnapshot();
             ClientGuiState.clear();
             XaeroWaypointBridge.reset();
         });

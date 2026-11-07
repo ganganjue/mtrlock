@@ -5,6 +5,7 @@
 "client": [
 "PacketRequestResponseBaseAccessor",
 "RegistryClientMixin",
+"DashboardScreenMixin",
 "ClientDisplayNameMixin"
 ],
 "injectors": {

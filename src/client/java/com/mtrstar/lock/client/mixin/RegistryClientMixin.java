@@ -2,6 +2,7 @@ package com.mtrstar.lock.client.mixin;
 
 import com.mtrstar.lock.Mtrlock;
 import com.mtrstar.lock.client.ClientOwnership;
+import com.mtrstar.lock.client.ClientRoutePlatformGuard;
 import com.mtrstar.lock.perm.ChildParents;
 import com.mtrstar.lock.perm.PermissionGuard;
 import org.mtr.mapping.holder.ClientPlayerEntity;
@@ -11,6 +12,7 @@ import org.mtr.mapping.registry.PacketHandler;
 import org.mtr.mapping.registry.RegistryClient;
 import org.mtr.mod.packet.PacketDeleteData;
 import org.mtr.mod.packet.PacketRequestResponseBase;
+import org.mtr.mod.client.MinecraftClientData;
 import org.mtr.mod.packet.PacketUpdateData;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -46,45 +48,57 @@ public abstract class RegistryClientMixin {
     )
     private void mtrlock$guardClientSend(PacketHandler packet, CallbackInfo ci) {
         if (!(packet instanceof PacketRequestResponseBase)) {
+            ClientRoutePlatformGuard.clearSnapshot();
             return;
         }
 
         final ClientPlayerEntity player = MinecraftClient.getInstance().getPlayerMapped();
         if (player == null) {
+            ClientRoutePlatformGuard.clearSnapshot();
             return;
         }
 
         final String content = ((PacketRequestResponseBaseAccessor) (Object) packet).mtrlock$getContent();
         if (content == null || content.isEmpty()) {
+            ClientRoutePlatformGuard.clearSnapshot();
             return;
         }
 
         final String uuid = player.getUuidAsString();
         final List<String> denied;
-        final String message;
+        final Text message;
 
         // 1.1.0：客户端还没有分享 / 团队快照（阶段 5 才同步），canEditOrUnknown 对非创建者
         // fail-open，避免误拦“对象已分享给其团队”的成员；精确拦截仍由服务端兜底。
         if (packet instanceof PacketUpdateData) {
-            denied = PermissionGuard.findDeniedInUpdate(
-                    content,
-                    ClientOwnership::hasCreator,
-                    ChildParents::get,
-                    objectId -> ClientOwnership.canEditOrUnknown(objectId, uuid));
-            message = MESSAGE_EDIT;
+            // 1.5.2：MTR DashboardScreen 已先本地修改线路，再调用 sendPacketToServer。
+            // 这里消费本地修改前的快照，既做新增引用预判，也用于拒绝后的乐观更新回滚。
+            final ClientRoutePlatformGuard.Snapshot snapshot = ClientRoutePlatformGuard.takeSnapshot();
+            final MinecraftClientData clientData = MinecraftClientData.getDashboardInstance();
+            final ClientRoutePlatformGuard.CheckResult result = ClientRoutePlatformGuard.check(
+                    content, uuid, clientData, snapshot);
+            denied = result.deniedObjectIds();
+            if (result.stationPermissionDenied()) {
+                ClientRoutePlatformGuard.rollbackAddedPlatforms(clientData, snapshot);
+                message = new Text(net.minecraft.text.Text.translatable(PermissionGuard.STATION_ADDITION_DENY_KEY));
+            } else {
+                message = Text.of(MESSAGE_EDIT);
+            }
         } else if (packet instanceof PacketDeleteData) {
+            ClientRoutePlatformGuard.clearSnapshot();
             denied = PermissionGuard.findDeniedInDelete(
                     content,
                     ClientOwnership::hasCreator,
                     ChildParents::get,
                     objectId -> ClientOwnership.canEditOrUnknown(objectId, uuid));
-            message = MESSAGE_DELETE;
+            message = Text.of(MESSAGE_DELETE);
         } else {
+            ClientRoutePlatformGuard.clearSnapshot();
             return;
         }
 
         if (!denied.isEmpty()) {
-            player.sendMessage(Text.of(message), true);
+            player.sendMessage(message, true);
             Mtrlock.LOGGER.info("[mtrlock] 客户端拦截 {} 权限不足: {}", uuid, denied);
             ci.cancel();
         }

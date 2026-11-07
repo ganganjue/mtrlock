@@ -3,6 +3,42 @@
 mtrlock（MTR 线路 / 车站 / 车厂权限模组）的版本变更记录。
 版本号以 `gradle.properties` 的 `version` 为准，构建产物为 `build/libs/mtrlock-<version>.jar`（已 remap）。
 
+## [1.5.2]
+
+主题「修复团队成员添加他人站台被对账误移除」。
+
+- **Bug**：非 OP 的线路 owner A 把线路 R 分享给团队成员 B 后，B 在仪表板把玩家 C 创建的车站站台加入 R：
+  第一层 `PacketEditPermissionMixin` 按“B 对线路 R 的编辑权限”放行，MTR 执行更新并触发
+  `Data.sync()`；对账层却按“线路 owner A 对 C 站台的权限”判定，于是移除该引用并记入
+  `removed_refs.json`。玩家看到 B 添加成功，但下一次 sync 后站台消失，第一层没有提示。
+- **根因**：第一层检查主体是操作者 B，对账层检查主体是线路 owner A；两层不是同一主体，
+  形成“放行 → 静默移除”。
+- **修复（前移方案）**：
+  - 在 `PacketEditPermissionMixin` 的 `PacketUpdateData` 分支解析 `routes[].routePlatformData[]`，
+    与 MTR 当前 `Route#getRoutePlatforms()` 对比，只找出**新增**的 `platformId`；
+  - 对每个新增引用，用 `platformIdMap.get(platformId).area` 反查父车站，并复用
+    `PermissionChecker.canEdit(player, stationObjectId)` 补查站台权限；
+  - 语义：把站台加入线路需同时具备“线路编辑权限”和“站台编辑权限”，或操作者 OP3+；
+  - 任一新引用无权限 → 收集全部非法项后**整包拒绝**（`ci.cancel()`）；
+    站台补查拒绝使用专用 lang key `mtrlock.deny.station_permission`，
+    线路 / 车站 / 车厂本身的编辑删除仍使用原通用文案；已有引用、删除引用不重复检查；
+  - 客户端在发包前用同一套 `PermissionGuard` 判定与同一文案 key 预判：
+    新增线路站台引用无权限时提示专用文案、取消发包，并在标准 Dashboard 添加路径回滚
+    MTR 本地 `Route.routePlatformData` 乐观修改（`DashboardScreen.onClickAddPlatformToRoute`
+    前保存快照，`RegistryClient.sendPacketToServer` 拦截时恢复，并清理平台反向缓存）；
+  - 客户端 `MinecraftClientData` 未就绪、站台为孤儿（`platform.area == null`）或分享快照未同步时
+    fail-open，由服务端补查兜底；数据过期导致服务端拒绝时，MTR 界面仍可能短暂显示已添加，
+    下一次 `Data.sync()` 后恢复；
+  - 对账层保持原有“按线路 owner 权限判定”语义与 1.5.1 OP 豁免逻辑不变；
+  - `ownership.json` / `removed_refs.json` 持久化格式不变。
+- **提示取舍**：同一 `PacketUpdateData` 内同时存在普通编辑拒绝与新增站台权限拒绝时，
+  聊天栏 / 快捷栏只显示站台专用文案 `mtrlock.deny.station_permission`；完整拒绝项仍写入服务端日志。
+  这是提示层的刻意取舍，避免一次操作弹两条消息。
+- **测试**：全量单测 **580 个全绿**；v1.5.2 相较 v1.5.1 共新增 16 个，
+  其中本轮客户端预判 / 专用提示 / 回滚新增 8 个，覆盖客户端拒绝与本地回滚、权限放行、
+  OP3+、data == null 与孤儿站台 fail-open、拒绝来源分类、通用文案不被覆盖、双语 key 存在性；
+  原有 572 个用例全部保留通过。
+
 ## [1.5.1]
 
 主题「修复 OP3+ 线路 owner 添加车站后被引用对账误移除」。

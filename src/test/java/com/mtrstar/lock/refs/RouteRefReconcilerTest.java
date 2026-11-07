@@ -337,6 +337,20 @@ class RouteRefReconcilerTest {
     }
 
     @Test
+    @DisplayName("非 OP owner 对站台有权限 → 新增引用在对账后保留")
+    void nonAdminOwnerWithStationPermissionKeepsReference() {
+        // setUp 已给 OWNER_A 同时授予 stationAId / stationBId 权限；
+        // 本用例显式走一次非 OP 对账，锁住“第一层放行后对账不误删”的保留路径。
+        final RouteRefReconciler.Result result = reconcileWithAdminStatus(
+                id -> Optional.of(false),
+                id -> false);
+
+        assertFalse(result.changed(), "owner 有站台权限时不应移除引用: " + result);
+        assertTrue(referencedPlatformIds().contains(platform1.getId()));
+        assertFalse(removedRefs.hasRemoved(routeId, platform1.getId()));
+    }
+
+    @Test
     @DisplayName("一次对账发现多条失权 → 全部移除，记录各一条")
     void removesAllLostPermissionsAtOnce() {
         revoke(OWNER_A, stationAId);

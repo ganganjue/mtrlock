@@ -6,11 +6,19 @@ import com.mtrstar.lock.perm.OwnershipData;
 import com.mtrstar.lock.perm.PermissionChecker;
 import com.mtrstar.lock.perm.PermissionGuard;
 import com.mtrstar.lock.protect.ProtectionConfig;
+import com.mtrstar.lock.protect.ProtectionIndex;
+import com.mtrstar.lock.refs.RemovedRefsData;
+import com.mtrstar.lock.refs.RouteRefReconciler;
 import com.mtrstar.lock.team.ResultCode;
 import com.mtrstar.lock.team.ResultMessages;
 import org.mtr.mapping.holder.ServerPlayerEntity;
 import org.mtr.mapping.holder.ServerWorld;
 import org.mtr.mapping.holder.Text;
+import org.mtr.core.data.Data;
+import org.mtr.core.data.Route;
+import org.mtr.core.data.RoutePlatformData;
+import org.mtr.core.data.Station;
+import org.mtr.core.tool.Utilities;
 import org.mtr.mod.packet.PacketDeleteData;
 import org.mtr.mod.packet.PacketDepotClear;
 import org.mtr.mod.packet.PacketDepotGenerate;
@@ -24,7 +32,9 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 功能 5：服务端拦截“编辑 / 删除”MTR 对象（Route / Station / Depot）。
@@ -75,20 +85,43 @@ public abstract class PacketEditPermissionMixin {
         }
 
         final List<String> denied;
-        final String message;
+        final Text message;
 
         // 1.1.0：每包只解析一次 uuid / admin；判定函数内部走“分享感知”的纯逻辑 + 生产注入
         // （OwnershipData / ShareData / TeamData）。这样编辑 / 删除都能命中“团队成员可编辑”。
         final PermissionGuard.EditPermission permission = PermissionChecker.editPermissionFor(player);
 
         if ((Object) this instanceof PacketUpdateData) {
-            // 编辑：逐个对象判定；无归属记录的会被 PermissionGuard 视为创建而放行
-            denied = PermissionGuard.findDeniedInUpdate(
-                    content,
-                    OwnershipData.getInstance()::hasCreator,
-                    ChildParents::get,
-                    permission);
-            message = MESSAGE_EDIT;
+            // 编辑：逐个对象判定；无归属记录的会被 PermissionGuard 视为创建而放行。
+            // 1.5.2：在 MTR 执行更新前，补查“新增线路站台引用”的操作者站台权限。
+            // 对账层仍按线路 owner 判定，因此这里必须先保证发包者本身有权限，
+            // 否则会出现“第一层放行 → Data.sync() 后引用被悄悄移除”的割裂。
+            final Data serverData = ProtectionIndex.getRememberedServerData();
+            final List<PermissionGuard.Denial> detailedDenied;
+            if (serverData == null) {
+                // MTR 数据尚未就绪：保持 1.5.1 行为，避免误拦正常编辑。
+                detailedDenied = PermissionGuard.findDeniedInUpdateDetailed(
+                        content,
+                        OwnershipData.getInstance()::hasCreator,
+                        ChildParents::get,
+                        permission,
+                        null,
+                        null);
+            } else {
+                detailedDenied = PermissionGuard.findDeniedInUpdateDetailed(
+                        content,
+                        OwnershipData.getInstance()::hasCreator,
+                        ChildParents::get,
+                        permission,
+                        routeId -> mtrlock$currentRoutePlatformIds(serverData, routeId),
+                        platformId -> mtrlock$stationObjectId(serverData, platformId));
+            }
+            denied = PermissionGuard.objectIdsOf(detailedDenied);
+            // 1.5.2：新增站台引用无权限时优先使用专用文案；同包同时存在其它
+            // 编辑拒绝时仍只提示一次，避免重复刷屏（日志里仍列出全部 denied）。
+            message = PermissionGuard.hasStationAdditionDenial(detailedDenied)
+                    ? new Text(net.minecraft.text.Text.translatable(PermissionGuard.STATION_ADDITION_DENY_KEY))
+                    : Text.of(MESSAGE_EDIT);
         } else if ((Object) this instanceof PacketDeleteData) {
             // 删除：逐个 id 判定
             denied = PermissionGuard.findDeniedInDelete(
@@ -96,7 +129,7 @@ public abstract class PacketEditPermissionMixin {
                     OwnershipData.getInstance()::hasCreator,
                     ChildParents::get,
                     permission);
-            message = MESSAGE_DELETE;
+            message = Text.of(MESSAGE_DELETE);
         } else if ((Object) this instanceof PacketDepotGenerate
                 || (Object) this instanceof PacketDepotInstantDeploy
                 || (Object) this instanceof PacketDepotClear) {
@@ -109,11 +142,45 @@ public abstract class PacketEditPermissionMixin {
         }
 
         if (!denied.isEmpty()) {
-            player.sendMessage(Text.of(message), false);
+            player.sendMessage(message, false);
             Mtrlock.LOGGER.info("[mtrlock] 拦截 {} 的 {} 操作，权限不足: {}",
                     player.getUuidAsString(), this.getClass().getSimpleName(), denied);
             ci.cancel();
         }
+    }
+
+    /**
+     * 1.5.2：当前线路已引用的 platformId 集合。
+     *
+     * <p>与 {@code RouteRefReconciler} 使用同一份 MTR 运行时数据；路线不存在时返回空集合，
+     * 于是请求里的 routePlatformData 全部按“新增引用”补查（新建线路场景）。</p>
+     */
+    private static Set<Long> mtrlock$currentRoutePlatformIds(Data data, long routeId) {
+        final Route route = RouteRefReconciler.routeById(
+                data,
+                PermissionChecker.PREFIX_ROUTE + ":" + Utilities.numberToPaddedHexString(routeId));
+        if (route == null) {
+            return Set.of();
+        }
+        final Set<Long> platformIds = new HashSet<>();
+        for (RoutePlatformData routePlatformData : route.getRoutePlatforms()) {
+            if (routePlatformData != null && routePlatformData.getPlatform() != null) {
+                platformIds.add(routePlatformData.getPlatform().getId());
+            }
+        }
+        return platformIds;
+    }
+
+    /**
+     * 1.5.2：platformId → 父车站 objectId。
+     *
+     * <p>复用 {@link RouteRefReconciler#parentStation(Data, long)} 与
+     * {@link RemovedRefsData#stationObjectId(long)}；站台不存在或为孤儿（area == null）
+     * 时返回 null，由补查逻辑跳过并交由既有对账流程处理。</p>
+     */
+    private static String mtrlock$stationObjectId(Data data, long platformId) {
+        final Station station = RouteRefReconciler.parentStation(data, platformId);
+        return station == null ? null : RemovedRefsData.stationObjectId(station.getId());
     }
 
     /**

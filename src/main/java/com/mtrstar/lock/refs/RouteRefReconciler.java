@@ -300,8 +300,14 @@ public final class RouteRefReconciler {
         }
     }
 
-    /** 站台 → 父车站；孤儿站台 / 车站已删时返回 null。 */
-    private static Station parentStation(Data data, long platformId) {
+    /**
+     * 站台 → 父车站；孤儿站台 / 车站已删时返回 null。
+     *
+     * <p>1.5.2 起改为 public：包入口的“新增线路引用”补查复用同一套
+     * {@code platformIdMap.get(platformId).area} 反查，不另造一套父车站解析。
+     * 对账逻辑本身不变。</p>
+     */
+    public static Station parentStation(Data data, long platformId) {
         final Platform platform = data.platformIdMap.get(platformId);
         if (platform == null) {
             return null;

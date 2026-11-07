@@ -1,7 +1,7 @@
 # VERIFY.md — mtrlock 功能 3 / 4 / 5 in-game 验证手册
 
 > 本环境（Termux / Android）**无法运行 Minecraft 客户端**，因此本仓库只做了：
-> `./gradlew --offline compileJava` 编译 + JVM 单元测试（当前全量 564 个用例全过）。
+> `./gradlew --offline compileJava` 编译 + JVM 单元测试（当前全量 580 个用例全过）。
 > 真正的 in-game 行为请按本文档在 PC 上验证。
 > 本文档不包含任何“已通过 in-game 验证”的声明。
 
@@ -15,7 +15,7 @@
 | Fabric Loader | 0.19.5（`gradle.properties` 同款；0.19.3+ 也可） |
 | Fabric API | 0.92.12+1.20.1 |
 | MTR (Minecraft Transit Railway) | FABRIC-4.0.0+1.20.1 |
-| 本模组 | build/libs/mtrlock-1.5.1.jar（自行 `./gradlew build` 产出） |
+| 本模组 | build/libs/mtrlock-1.5.2.jar（自行 `./gradlew build` 产出） |
 | Java | 17+（构建/运行服务端用 21 亦可） |
 
 服务端数据文件位置：
@@ -1046,3 +1046,75 @@ WARN 级别；仅在 Xaero 已安装但反射签名不兼容时出现，Xaero �
 
 - `UserCache` 为 null、UUID 查不到 `GameProfile`、`OperatorList` 查询异常 → 按非 OP 处理。
 - 上述异常不得抛到 `Data.sync()`；对账应继续执行或安全跳过，不应导致服务器 tick 中断。
+
+---
+
+## 17. 1.5.2 团队成员添加站台权限补查验证
+
+> 本环境只能执行 `./gradlew --offline test` / `build`，不能启动 Minecraft。
+> 以下 in-game 步骤供 PC 环境验证。
+
+### 17.1 构建与单测
+
+```bash
+./gradlew --offline test     # 580 个用例全过（v1.5.2 相较 v1.5.1 共新增 16）
+./gradlew --offline build    # 产物 build/libs/mtrlock-1.5.2.jar
+```
+
+- Java target 仍为 17。
+- `ownership.json` / `removed_refs.json` 持久化格式不变。
+- `RouteRefReconciler` 的 owner 判定与 1.5.1 OP3+ 豁免逻辑不变。
+- 线路 / 车站 / 车厂本身的编辑拒绝仍为 `你没有权限编辑此对象`；
+  新增线路站台引用的站台权限拒绝使用专用 key `mtrlock.deny.station_permission`。
+- 客户端预判与服务端补查共用 `PermissionGuard` 判定与专用文案 key。
+
+### 17.2 场景清单
+
+准备：A（非 OP）创建线路 R，并把 R 分享给团队 T；B 是 T 成员；C 创建车站 S，
+其站台 P 位于 S 内。B 在铁路仪表板把 P 加入 R。
+
+| # | 步骤 | 预期 |
+|---|---|---|
+| 1 | B 无 S 编辑权限，在标准 MTR Dashboard 把 P 加入 R | **客户端预判拦截、不发包**；快捷栏显示站台专用文案；本地 `Route.routePlatformData` 回滚，不新增 P；`removed_refs.json` 不新增记录 |
+| 2 | C 把 S 分享给 T（或 B 通过其它团队分享获得 S 编辑权限），B 把 P 加入 R | 客户端预判放行；服务端二次校验放行；MTR 更新成功；若线路 owner A 也对 S 有权限，则后续 sync 对账保留 P |
+| 3 | OP3+ 操作者把任意站台加入 R | 客户端 `ClientOwnership.isOperator()` 放行；服务端 `PermissionChecker` 管理员豁免放行 |
+| 4 | 模拟客户端数据过期：B 无站台权限但客户端未拦截，直接发包 | 服务端整包 `ci.cancel()`；聊天栏显示站台专用文案 `你没有权限将该站台加入此线路：需要站台所属车站的编辑权限` |
+| 5 | 同一包内先合法修改 R 的名称，同时新增一个 B 无权限的 P | 整包拒绝；R 的名称修改也不生效；只提示一次站台专用文案；客户端日志列出全部拒绝项 |
+| 6 | B 从 R 删除已有站台 P（请求 `routePlatformData` 里不再包含 P） | 不触发站台权限补查；不出现站台专用文案；删除正常生效 |
+| 7 | 线路 / 车站 / 车厂本身编辑被拒 | 仍显示通用 `你没有权限编辑此对象`，不被站台文案覆盖 |
+| 8 | 客户端 `MinecraftClientData` 未就绪 | 客户端 fail-open 发包；服务端按自身数据补查 / 兜底，不崩溃 |
+| 9 | P 的父车站已被删除，`platform.area == null`，B 尝试加入 P | 客户端与服务端补查均跳过、不崩溃；由既有 `RouteRefReconciler` 孤儿站台逻辑处理 |
+| 10 | 回归：OP3+ 线路 owner 添加他人站台、非 OP 编辑拦截、删除请求分支 | 与 1.5.1 行为一致；564 个旧用例与 572 个 v1.5.2 既有用例全部保留通过 |
+
+### 17.3 日志、文案与数据断言
+
+客户端快捷栏 / 服务端聊天栏的站台权限专用文案：
+
+```text
+zh_cn: 你没有权限将该站台加入此线路：需要站台所属车站的编辑权限
+en_us: You do not have permission to add this platform to the route: station edit permission required
+```
+
+服务端日志：
+
+```text
+[mtrlock] 拦截 <B-UUID> 的 PacketUpdateData 操作，权限不足: [platform:<HEX>]
+```
+
+- 专用文案 key 必须两端一致：`mtrlock.deny.station_permission`。
+- 线路 / 车站 / 车厂本身编辑被拒时不出现该专用文案，仍使用通用编辑文案。
+- 客户端拦截后包不应发出；标准 Dashboard 添加路径本地 `Route.routePlatformData` 应回滚。
+- 服务端拒绝后，MTR 不应产生 `UpdateDataRequest.update()` 的实际数据变更。
+- `removed_refs.json` 在场景 #1 / #4 中不得新增对应 `routeId + platformId` 记录。
+- 对账日志仍使用既有 `[mtrlock] 线路引用移除（owner 已失去站台权限）` 关键字；
+  1.5.2 没有在 `RouteRefReconciler` 内新增任何权限判断。
+
+### 17.4 异常降级
+
+- 客户端 `MinecraftClientData.getDashboardInstance() == null` → 客户端新增引用补查 fail-open 发包，服务端兜底。
+- 客户端分享 / 团队快照尚未同步 → `ClientOwnership.canEditOrUnknown` fail-open，服务端兜底。
+- 服务端 `ProtectionIndex.getRememberedServerData() == null` → 退化为 1.5.1 的编辑检查。
+- `routePlatformData` / `platformId` 格式异常 → 该条补查跳过，不中断包处理。
+- `platformIdMap` 查不到站台或 `area == null` → 客户端 / 服务端补查均跳过，不误拒、不 NPE。
+- 第三方客户端路径 / 数据过期导致客户端未拦截时，服务端仍会拒绝；MTR 界面可能短暂显示已添加，
+  下一次 `Data.sync()` 后恢复。
