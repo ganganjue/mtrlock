@@ -1,7 +1,7 @@
 # VERIFY.md — mtrlock 功能 3 / 4 / 5 in-game 验证手册
 
-> 本环境（Termux / Android）**无法运行 Minecraft 客户端**，因此本仓库只做了：
-> `./gradlew --offline compileJava` 编译 + JVM 单元测试（当前全量 580 个用例全过）。
+> 作者太懒,因此本仓库只做了：
+> `./gradlew --offline compileJava` 编译 + JVM 单元测试（当前全量 601 个用例全过）。
 > 真正的 in-game 行为请按本文档在 PC 上验证。
 > 本文档不包含任何“已通过 in-game 验证”的声明。
 
@@ -15,7 +15,7 @@
 | Fabric Loader | 0.19.5（`gradle.properties` 同款；0.19.3+ 也可） |
 | Fabric API | 0.92.12+1.20.1 |
 | MTR (Minecraft Transit Railway) | FABRIC-4.0.0+1.20.1 |
-| 本模组 | build/libs/mtrlock-1.5.2.jar（自行 `./gradlew build` 产出） |
+| 本模组 | build/libs/mtrlock-1.5.3.jar（自行 `./gradlew build` 产出） |
 | Java | 17+（构建/运行服务端用 21 亦可） |
 
 服务端数据文件位置：
@@ -1118,3 +1118,62 @@ en_us: You do not have permission to add this platform to the route: station edi
 - `platformIdMap` 查不到站台或 `area == null` → 客户端 / 服务端补查均跳过，不误拒、不 NPE。
 - 第三方客户端路径 / 数据过期导致客户端未拦截时，服务端仍会拒绝；MTR 界面可能短暂显示已添加，
   下一次 `Data.sync()` 后恢复。
+
+---
+
+## 18. 1.5.3 多格方块副格 + 对账脏数据 + OP 同步 + Xaero 官方 API 验证
+
+> 本环境只能执行 `./gradlew --offline test` / `build`，不能启动 Minecraft。
+> 以下 in-game 步骤供 PC 环境验证；其中 18.2 的水平多格场景已完成 in-game 验证，
+> 18.3 / 18.4 仍待 in-game 验证。
+
+### 18.1 构建与单测
+
+```bash
+./gradlew --offline test     # 601 个用例全过（相较 1.5.2 新增 21）
+./gradlew --offline build    # 产物 build/libs/mtrlock-1.5.3.jar
+```
+
+- Java target 仍为 17。
+- `ownership.json` / `removed_refs.json` 持久化格式不变。
+- 多格方块逻辑、脏 UUID 跳过、OP 重发均不改变 OwnershipSync payload。
+- Xaero 集成已迁移到 Xaero 26.6.0 官方第三方 waypoint API；配色 / 维度切换 / 重连仍需 in-game 验证。
+
+### 18.2 水平多格方块副格场景（已 in-game 验证）
+
+| # | 场景 | 结果 |
+|---|---|---|
+| 1 | 床跨界破坏：床脚在保护区内、床头在保护区外，从外侧破坏床头 | 拒绝（已验证） |
+| 2 | 床跨界放置：床脚在保护区外、床头在保护区内，放置床 | 拒绝（已验证） |
+| 3 | 双箱跨界放置：保护区内已有箱，在区外放置第二个箱使其配对 | 拒绝（已验证） |
+| 4 | 双箱跨界破坏：双箱一半在保护区内、一半在外，从外侧破坏外侧箱 | 拒绝（已验证） |
+| 5 | 垂直多格回归：保护区内放门/高草/双台阶，从上方破坏上半 | 原有行为不变（已验证） |
+| 6 | 垂直多格回归：保护区边界外放门，使上半落入保护区内 | 按 2D 判定拦截（已验证） |
+
+日志关键字：保护拒绝时 ProtectionListener 输出的坐标应与实际配对位置一致。
+
+### 18.3 /op /deop 即时刷新场景（待 in-game 验证）
+
+| # | 场景 | 预期 |
+|---|---|---|
+| 1 | 游戏中 /op 玩家 B，不重连 | B 的客户端 operator 标志立即变为 true；GUI 按钮可用；客户端预判不再拦截 |
+| 2 | 游戏中 /deop 玩家 B，不重连 | B 的客户端 operator 标志立即变为 false；GUI 按钮不可用；客户端预判按非 OP 处理 |
+| 3 | 目标玩家离线时 /op | 不推送；玩家下次 JOIN 时按 JOIN 流程下发 |
+| 4 | 非 OP 玩家 JOIN | 不触发额外 pushTo |
+
+验证方法：客户端日志或调试命令读取 operator 标志；服务端日志确认 pushTo 只在 OP 变化时触发一次。
+
+### 18.4 脏 UUID 与无归属线路场景（待 in-game 验证）
+
+| # | 场景 | 预期 |
+|---|---|---|
+| 1 | 手动把 ownership.json 中某线路 owner 改为非法字符串，触发 sync | 日志出现 WARN；该线路引用保留；removed_refs.json 不新增记录 |
+| 2 | 无归属线路（模组安装前创建）触发 sync | 无 WARN；不调用权限判定；removed_refs.json 不变 |
+| 3 | 无归属线路存在历史 removed_refs 条目，触发 sync | 条目不被幽灵清理自动删除；需 /mtrlock refs 手动处理 |
+| 4 | 修正 ownership.json 为合法 UUID 后触发 sync | 恢复正常对账；WARN 不再出现 |
+
+### 18.5 异常降级
+
+- BlockState / BlockEntity 查询失败 → 只查主格，不崩溃。
+- PlayerManager.addToOperators / removeFromOperators 方法签名不匹配 → Mixin 注入失败，需在构建日志中确认。
+- ownership.json 损坏到无法解析 → 已有的坏文件保护逻辑生效，不覆盖原文件。

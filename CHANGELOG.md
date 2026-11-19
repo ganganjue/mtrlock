@@ -3,6 +3,31 @@
 mtrlock（MTR 线路 / 车站 / 车厂权限模组）的版本变更记录。
 版本号以 `gradle.properties` 的 `version` 为准，构建产物为 `build/libs/mtrlock-<version>.jar`（已 remap）。
 
+## [1.5.3]
+
+主题「区域保护多格方块副格覆盖 + 对账脏数据与 OP 同步加固 + Xaero 官方 API 迁移」。
+
+- **修复：区域保护对水平多格方块副格的覆盖不全**
+  - 破坏事件此前只检查事件 pos，床的副格、双箱配对箱可能被绕过；放置事件只补了床的床头，双箱配对未处理。
+  - 破坏时按 BlockState 展开床的另一半、双箱的配对箱，逐点判定，任一被拒即整体拒绝；放置双箱时用 getPlacementState 解析配对箱坐标，配对箱在保护区内则拒绝。
+  - 垂直多格（门、高草、双台阶）因 x/z 相同，2D 索引天然覆盖，不加 3D 判定；解析异常时降级为只查主格，不崩溃。
+  - 验证：已 in-game 验证 4 个跨界场景（床跨界破坏/放置、双箱跨界放置/破坏）均为拒绝；垂直多格回归 2 条通过。
+- **修复：ownership.json 脏 UUID 与无归属线路对账语义**
+  - parseUuid 在 UUID.fromString 抛异常时此前静默返回 null，null 传给 canEdit 返回 false，RouteRefReconciler 会移除引用并记账；现 parseUuid 失败记 WARN。
+  - RouteRefReconciler 新增 OwnerValidator：有归属但 UUID 非法的线路跳过对账、保留引用、不写 removed_refs，等待人工修正 ownership.json。
+  - 无归属线路（模组安装前创建、网页创建）是合法 fail-open 状态：不调用 validator、不 WARN、不写 removed_refs；历史账本条目也不会被幽灵清理自动删除，需要清理时用 `/mtrlock refs` 手动处理。
+- **修复：/op /deop 后客户端 OP 标志过期**
+  - 此前 operator 标志只在 JOIN、归属变更、团队/分享/称号变更时下发，/op /deop 不触发，客户端预判和 GUI 状态过期。
+  - 现通过 PlayerManagerOperatorSyncMixin 在 addToOperators / removeFromOperators RETURN 对目标在线玩家重发 OwnershipSync，仅在目标在线时推送一次。
+- **重构：Xaero 集成迁移到官方 API**
+  - 删除 XaeroReflection，新增 XaeroApiAdapter，直接 import Xaero 26.6.0 的 `BuiltInHudModules` / `MinimapSession` / `MinimapWorldManager` / `MinimapWorld` / `MinimapWorldContainer` / `ThirdPartyWaypointManager` / `ThirdPartyWaypoints` / `Waypoint`，不再使用 Class.forName / 反射。
+  - `Waypoint` 使用 int colorId 构造器：车站 6（GOLD）、车厂 11（AQUA）；`WaypointColor.fromIndex(int)` 的最终映射待 in-game 校准。
+  - `build.gradle` 新增 `modCompileOnly` Xaero Minimap 26.6.0 与 World Map 1.47.0；jar 为 intermediary 依赖，需要 Loom remap，仍是 compile-only，不进入运行时产物。
+  - `LinkageError` 时禁用集成并 WARN 一次；`RuntimeException` 仅按操作类型 WARN 限频并允许下一次重试；`isInstalled()` 只检查 `xaerominimap`，单独安装 World Map 不支持第三方 waypoint 集成，会静默跳过。
+- **测试**：全量单测 **601 个全绿**（相较 1.5.2 的 580 个新增 21 个），覆盖多格方块副格展开、脏 UUID 跳过、无归属静默 fail-open、OP 重发、Xaero 官方 API 适配与 WARN 限频。
+
+**待 in-game 验证**：Xaero waypoint 显示与颜色、维度切换重建、断线重连不重复、只装 World Map 或未装 Xaero 时静默跳过。
+
 ## [1.5.2]
 
 主题「修复团队成员添加他人站台被对账误移除」。

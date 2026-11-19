@@ -142,9 +142,18 @@ public abstract class DataChildParentMixin {
                 self,
                 routeId -> OwnershipData.getInstance().getCreator(routeId),
                 removedRefs,
-                (ownerUuid, stationObjectId) -> PermissionChecker.canEdit(
-                        parseUuid(ownerUuid), stationObjectId, false),
-                DataChildParentMixin::isAdminOwner);
+                (ownerUuid, stationObjectId) -> {
+                    final UUID uuid = parseUuid(ownerUuid);
+                    if (uuid == null) {
+                        // ownerValidator 已拦住脏 UUID；这里仅作防御，绝不把 null 传给 canEdit。
+                        Mtrlock.LOGGER.warn("[mtrlock] owner UUID 非法，跳过权限判定：ownerUuid={}, stationObjectId={}",
+                                ownerUuid, stationObjectId);
+                        return true;
+                    }
+                    return PermissionChecker.canEdit(uuid, stationObjectId, false);
+                },
+                DataChildParentMixin::isAdminOwner,
+                DataChildParentMixin::isValidOwnerUuid);
 
         if (!result.changed()) {
             return;
@@ -194,7 +203,23 @@ public abstract class DataChildParentMixin {
                 });
     }
 
-    /** UUID 字符串解析失败（脏数据）→ null → canEdit 返回 false（fail-open，不移除）。 */
+    /**
+     * owner UUID 是否可用于本次线路引用对账。
+     *
+     * <p>返回 false 时 {@link RouteRefReconciler} 会跳过整条线路 / 账本记录，
+     * 不调用 canEdit、不移除引用、不写 removed_refs。脏数据按保守方案保留引用。</p>
+     */
+    private static boolean isValidOwnerUuid(String routeId, String ownerUuid) {
+        // RouteRefReconciler 只会在 owner 非空时调用本方法；null / empty 是合法 fail-open 状态。
+        if (parseUuid(ownerUuid) == null) {
+            Mtrlock.LOGGER.warn("[mtrlock] ownership.json 中 owner UUID 非法，跳过引用对账：routeId={}, ownerUuid={}",
+                    routeId, ownerUuid);
+            return false;
+        }
+        return true;
+    }
+
+    /** UUID 字符串解析失败（脏数据）→ null 并记录 WARN；调用方必须自行跳过。 */
     private static UUID parseUuid(String uuid) {
         if (uuid == null || uuid.isEmpty()) {
             return null;
@@ -202,6 +227,7 @@ public abstract class DataChildParentMixin {
         try {
             return UUID.fromString(uuid);
         } catch (IllegalArgumentException e) {
+            Mtrlock.LOGGER.warn("[mtrlock] owner UUID 解析失败：uuid={}", uuid, e);
             return null;
         }
     }

@@ -7,7 +7,10 @@ import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.minecraft.block.BedBlock;
 import net.minecraft.block.BlockState;
+import net.minecraft.block.ChestBlock;
 import net.minecraft.block.entity.BlockEntity;
+import net.minecraft.block.enums.BedPart;
+import net.minecraft.block.enums.ChestType;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.BlockItem;
 import net.minecraft.item.ItemPlacementContext;
@@ -19,6 +22,7 @@ import net.minecraft.util.Formatting;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 import net.minecraft.world.World;
 
 import java.util.ArrayList;
@@ -63,7 +67,8 @@ public final class ProtectionListener {
         if (world == null || world.isClient() || !(player instanceof ServerPlayerEntity)) {
             return true;
         }
-        return allow((ServerPlayerEntity) player, pos, true);
+        final ServerPlayerEntity serverPlayer = (ServerPlayerEntity) player;
+        return allPartsAllowed(pos, state, partPos -> allow(serverPlayer, partPos, true));
     }
 
     /** 放置方块：只处理「手持方块物品且确实会放置」的交互。 */
@@ -90,14 +95,95 @@ public final class ProtectionListener {
         }
 
         // 1.4.2：水平多格方块（床）副格也要查。床脚在 target，床头在玩家水平朝向偏移处；
-        // 垂直多格（高草、门）的 x/z 与主格相同，MTR 2D 范围天然覆盖，不需要额外处理。
+        // 垂直多格（高草、门、双台阶）的 x/z 与主格相同，MTR 2D 范围天然覆盖，无需展开。
         if (blockItem.getBlock() instanceof BedBlock) {
             final BlockPos head = target.offset(context.getHorizontalPlayerFacing());
             if (!allow(serverPlayer, head, false)) {
                 return ActionResult.FAIL;
             }
         }
+
+        // 双箱：放置后的 CHEST_TYPE/FACING 决定配对箱坐标；如果新箱会与已有箱配对，
+        // 配对箱也必须在允许区域。
+        if (blockItem.getBlock() instanceof ChestBlock) {
+            final BlockPos pairPos = chestPairPosForPlacement(context, blockItem);
+            if (pairPos != null && !allow(serverPlayer, pairPos, false)) {
+                return ActionResult.FAIL;
+            }
+        }
         return ActionResult.PASS;
+    }
+
+    /**
+     * 主格与水平副格逐点判定；副格不存在时只看主格。任一坐标被拒即整体拒绝。
+     * 供破坏事件与测试复用，异常时按原逻辑放行（退回只看主格）。
+     */
+    static boolean allPartsAllowed(BlockPos pos, BlockState state, java.util.function.Predicate<BlockPos> allowed) {
+        return allPartsAllowed(pos, horizontalExtraPos(pos, state), allowed);
+    }
+
+    /** 主格 + 已知副格逐点判定；副格为 null 时只看主格。任一坐标被拒即整体拒绝。 */
+    static boolean allPartsAllowed(BlockPos pos, BlockPos extra, java.util.function.Predicate<BlockPos> allowed) {
+        if (pos == null || allowed == null) {
+            return true;
+        }
+        if (!allowed.test(pos)) {
+            return false;
+        }
+        return extra == null || allowed.test(extra);
+    }
+
+    /**
+     * 水平多格方块的副格坐标：
+     * <ul>
+     *   <li>床：按 PART/FACING 取另一半；</li>
+     *   <li>双箱：CHEST_TYPE 非 SINGLE 时，按 ChestBlock.getFacing(state) 取配对箱；</li>
+     *   <li>其他方块：不展开。</li>
+     * </ul>
+     * 垂直多格（门、高草、双台阶）x/z 相同，2D 索引天然覆盖，无需展开。
+     * 查询异常时返回 null，调用方按原逻辑只看主格。
+     */
+    static BlockPos horizontalExtraPos(BlockPos pos, BlockState state) {
+        if (pos == null || state == null) {
+            return null;
+        }
+        try {
+            if (state.getBlock() instanceof BedBlock) {
+                return bedOtherPartPos(pos, state.get(BedBlock.FACING),
+                        state.get(BedBlock.PART) == BedPart.FOOT);
+            }
+            if (state.getBlock() instanceof ChestBlock) {
+                final ChestType chestType = state.get(ChestBlock.CHEST_TYPE);
+                if (chestType != ChestType.SINGLE) {
+                    return chestOtherPartPos(pos, state.get(ChestBlock.FACING), chestType == ChestType.LEFT);
+                }
+            }
+        } catch (Exception e) {
+            Mtrlock.LOGGER.warn("[mtrlock] 多格方块副格解析失败，按主格判定: {}", pos, e);
+        }
+        return null;
+    }
+
+    /** 床另一半坐标（与原版 BedBlock 的 PART/FACING 语义一致）。 */
+    static BlockPos bedOtherPartPos(BlockPos pos, Direction facing, boolean foot) {
+        return pos.offset(foot ? facing : facing.getOpposite());
+    }
+
+    /** 双箱配对坐标（与原版 ChestBlock.getFacing 的 LEFT/RIGHT 旋转语义一致）。 */
+    static BlockPos chestOtherPartPos(BlockPos pos, Direction facing, boolean left) {
+        return pos.offset(left ? facing.rotateYClockwise() : facing.rotateYCounterclockwise());
+    }
+
+    /** 放置箱子时按原版 getPlacementState 结果解析配对箱坐标；单箱 / 异常返回 null。 */
+    private static BlockPos chestPairPosForPlacement(ItemPlacementContext context, BlockItem blockItem) {
+        try {
+            final BlockState placementState = blockItem.getBlock().getPlacementState(context);
+            return horizontalExtraPos(context.getBlockPos(), placementState);
+        } catch (Exception e) {
+            Mtrlock.LOGGER.warn("[mtrlock] 箱子配对位置解析失败，按主格判定: {}",
+                    context.getBlockPos(), e);
+            return null;
+        }
     }
 
     /**

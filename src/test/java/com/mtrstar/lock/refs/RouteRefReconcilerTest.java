@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -460,6 +461,89 @@ class RouteRefReconcilerTest {
         permissions.clear();
         assertFalse(reconcile().changed());
         assertEquals(2, route.getRoutePlatforms().size());
+    }
+
+    @Test
+    @DisplayName("owner UUID 非法字符串 → 校验失败时跳过对账，不调用 canEdit、不移除、不记账")
+    void invalidOwnerUuidSkipsBeforePermissionCheck() {
+        owners.put(routeId, "not-a-uuid");
+        final AtomicInteger permissionCalls = new AtomicInteger();
+        final AtomicInteger validatorCalls = new AtomicInteger();
+
+        final RouteRefReconciler.Result result = RouteRefReconciler.reconcile(
+                data,
+                owners::get,
+                removedRefs,
+                (owner, stationObjectId) -> {
+                    permissionCalls.incrementAndGet();
+                    return false;
+                },
+                null,
+                (routeId, ownerUuid) -> {
+                    validatorCalls.incrementAndGet();
+                    return false;
+                });
+
+        assertFalse(result.changed());
+        assertEquals(0, permissionCalls.get(), "脏 UUID 不应进入 PermissionLookup");
+        assertTrue(validatorCalls.get() > 0, "对账前必须经过 owner UUID 校验");
+        assertEquals(2, route.getRoutePlatforms().size(), "引用必须保留");
+        assertEquals(0, removedRefs.size(), "不得写入 removed_refs");
+    }
+
+    @Test
+    @DisplayName("无归属线路（owner=null）→ 静默 fail-open，不调用 validator / canEdit，不移除、不记账")
+    void nullOwnerSkipsWithoutValidator() {
+        assertNoOwnerSkipsWithoutValidator(null);
+    }
+
+    @Test
+    @DisplayName("无归属线路（owner 为空串）→ 静默 fail-open，不调用 validator / canEdit，不移除、不记账")
+    void blankOwnerSkipsWithoutValidator() {
+        assertNoOwnerSkipsWithoutValidator("");
+    }
+
+    private void assertNoOwnerSkipsWithoutValidator(String ownerUuid) {
+        owners.put(routeId, ownerUuid);
+        final AtomicInteger permissionCalls = new AtomicInteger();
+        final AtomicInteger validatorCalls = new AtomicInteger();
+
+        final RouteRefReconciler.Result result = RouteRefReconciler.reconcile(
+                data,
+                owners::get,
+                removedRefs,
+                (owner, stationObjectId) -> {
+                    permissionCalls.incrementAndGet();
+                    return false;
+                },
+                null,
+                (routeId, ownerUuid1) -> {
+                    validatorCalls.incrementAndGet();
+                    return false;
+                });
+
+        assertFalse(result.changed());
+        assertEquals(0, permissionCalls.get(), "无 owner 不应进入 PermissionLookup");
+        assertEquals(0, validatorCalls.get(), "无 owner 是合法 fail-open 状态，不应调用 validator");
+        assertEquals(2, route.getRoutePlatforms().size(), "引用必须保留");
+        assertEquals(0, removedRefs.size(), "不得写入 removed_refs");
+    }
+
+    @Test
+    @DisplayName("owner UUID 合法但无权限 → 原逻辑移除引用并记账")
+    void validOwnerWithoutPermissionStillRemoves() {
+        revoke(OWNER_A, stationAId);
+        final RouteRefReconciler.Result result = RouteRefReconciler.reconcile(
+                data,
+                owners::get,
+                removedRefs,
+                (owner, stationObjectId) -> permissions.getOrDefault(owner, Set.of()).contains(stationObjectId),
+                null,
+                (routeId, ownerUuid) -> true);
+
+        assertEquals(1, result.removed().size());
+        assertNotReferences(platform1.getId());
+        assertTrue(removedRefs.hasRemoved(routeId, platform1.getId()));
     }
 
     @Test

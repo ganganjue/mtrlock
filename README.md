@@ -93,8 +93,8 @@
 | Fabric API | 0.92.12+1.20.1 |
 | MTR (Minecraft Transit Railway) | >= 4.0.0（`FABRIC-4.0.0+1.20.1`） |
 | Java | 17+ |
-| Xaero's Minimap / World Map | 26.2.0+ / 1.42.0+（可选，仅客户端，不装不影响其他功能） |
-| 本模组 | mtrlock 1.5.2 |
+| Xaero's Minimap / World Map | 26.6.0+ / 1.47.0+（可选，仅客户端，不装不影响其他功能） |
+| 本模组 | mtrlock 1.5.3 |
 
 > StyledChat（`styledchat`）/ StyledPlayerList（`styledplayerlist`）是**可选**模组。
 > 装了它们时 mtrlock 改用 Placeholder API 暴露前缀（详见“与 StyledChat / StyledPlayerList 共存”），
@@ -106,7 +106,7 @@
 
 1. 安装 Fabric Loader（1.20.1）。
 2. 把以下 jar 放进 `mods/`：
-   - `mtrlock-1.5.2.jar`
+   - `mtrlock-1.5.3.jar`
    - `fabric-api-0.92.12+1.20.1.jar`
    - `minecraft-transit-railway-FABRIC-4.0.0+1.20.1.jar`
 3. 启动一次服务端，会生成 `config/mtrperm/ownership.json`。
@@ -429,6 +429,14 @@ mtrlock 启动时会检测服务器是否装了 **StyledChat**（mod id `styledc
 > 完整验证步骤与排查清单见仓库根目录的 `VERIFY.md`。
 
 ## 从源码构建
+
+`libs/` 下的部分依赖不随仓库分发，构建前需自行放入：
+
+- `libs/placeholder-api-2.1.4.jar`（已跟踪）
+- `libs/xaerominimap-fabric-1.20.1-26.6.0.jar`（未跟踪，需自行下载）
+- `libs/xaeroworldmap-fabric-1.20.1-1.47.0.jar`（未跟踪，需自行下载）
+
+Xaero 的两个 jar 可从 CurseForge / Modrinth 下载，文件名必须与 `build.gradle` 的 `modCompileOnly` 路径一致。CI 构建需在构建前准备好这两个文件，否则 `./gradlew build` 会在编译期报找不到类。`recon/` 下的 Axiom jar 同理，不属于版本库。
 
 ```bash
 ./gradlew build

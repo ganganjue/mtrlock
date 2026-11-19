@@ -19,7 +19,8 @@
 		"FillCommandMixin",
 		"MtrDepotCommandMixin",
 		"PistonHandlerMixin",
-		"ExplosionMixin"
+		"ExplosionMixin",
+		"PlayerManagerOperatorSyncMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

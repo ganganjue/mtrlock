@@ -92,6 +92,17 @@ public final class RouteRefReconciler {
         boolean isAdmin(String ownerUuid);
     }
 
+    /**
+     * owner UUID 可用性校验。返回 false 时本次对账完全跳过该线路：
+     * 不调用权限判定、不移除引用、不写 removed_refs。
+     */
+    @FunctionalInterface
+    public interface OwnerValidator {
+
+        /** @return owner UUID 合法且可用于本次对账返回 true */
+        boolean isValid(String routeId, String ownerUuid);
+    }
+
     /** 一条被处理的引用（routeId + platformId）。 */
     public record Ref(String routeId, long platformId) {
     }
@@ -143,6 +154,19 @@ public final class RouteRefReconciler {
      */
     public static Result reconcile(Data data, OwnerLookup owners, RemovedRefsData removedRefs,
                                    PermissionLookup permissions, AdminLookup admins) {
+        return reconcile(data, owners, removedRefs, permissions, admins, null);
+    }
+
+    /**
+     * 全量对账（1.5.3：owner UUID 脏数据保守跳过）。
+     *
+     * <p>{@code ownerValidator} 在权限判定前校验 owner UUID。返回 false 时：
+     * 第一遍不进入移除分支，第二遍不清理 / 加回该线路的账本条目，因此不会产生
+     * 任何持久化写入。null 等价于不额外校验，保持旧行为。</p>
+     */
+    public static Result reconcile(Data data, OwnerLookup owners, RemovedRefsData removedRefs,
+                                   PermissionLookup permissions, AdminLookup admins,
+                                   OwnerValidator ownerValidator) {
         final List<Ref> removed = new ArrayList<>();
         final List<Ref> restored = new ArrayList<>();
         final List<Ref> purged = new ArrayList<>();
@@ -166,9 +190,12 @@ public final class RouteRefReconciler {
                 continue;
             }
 
-            // 无 owner → fail-open 跳过整条线路
             final String owner = owners.getCreator(routeId);
+            // 无 owner → 合法 fail-open 状态：静默跳过，不调用 validator、不 WARN
             if (owner == null || owner.isEmpty()) {
+                continue;
+            }
+            if (ownerValidator != null && !ownerValidator.isValid(routeId, owner)) {
                 continue;
             }
 
@@ -218,6 +245,14 @@ public final class RouteRefReconciler {
         // ---- 第二遍：账本里的引用，权限恢复就加回，线路/站台不存在就清记录 ----
         for (Map.Entry<String, List<RemovedRefsData.RemovedRefEntry>> entry : removedRefs.getAll().entrySet()) {
             final String routeId = entry.getKey();
+            final String owner = owners.getCreator(routeId);
+            // 无 owner → 合法 fail-open 状态：静默跳过，不调用 validator、不 WARN
+            if (owner == null || owner.isEmpty()) {
+                continue;
+            }
+            if (ownerValidator != null && !ownerValidator.isValid(routeId, owner)) {
+                continue;
+            }
             final Route route = routeById(data, routeId);
 
             for (RemovedRefsData.RemovedRefEntry refEntry : entry.getValue()) {
@@ -256,7 +291,6 @@ public final class RouteRefReconciler {
                     continue;
                 }
 
-                final String owner = owners.getCreator(routeId);
                 if (owner == null || owner.isEmpty()) {
                     // 没有 owner 就无法判定权限 → fail-open，什么都不做
                     continue;
